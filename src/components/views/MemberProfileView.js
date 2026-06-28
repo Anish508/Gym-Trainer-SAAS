@@ -61,6 +61,29 @@ export default function MemberProfileView({ memberId, onBack }) {
     }
   }, [memberId]);
 
+  // Synchronize active tab with URL hash changes (e.g. #workouts, #diet)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const handleHashTab = () => {
+        const currentHash = window.location.hash;
+        if (currentHash.includes('#workouts') || currentHash.includes('#workout')) {
+          setActiveTab('workout');
+        } else if (currentHash.includes('#diet')) {
+          setActiveTab('diet');
+        } else if (currentHash.includes('#progress')) {
+          setActiveTab('progress');
+        } else if (currentHash.includes('#billing')) {
+          setActiveTab('billing');
+        } else if (currentHash.includes('#personal')) {
+          setActiveTab('personal');
+        }
+      };
+      handleHashTab(); // Sync immediately on load/mount
+      window.addEventListener('hashchange', handleHashTab);
+      return () => window.removeEventListener('hashchange', handleHashTab);
+    }
+  }, [memberId]);
+
   const loadProfileData = async () => {
     const mem = await dbReadOne('members', memberId);
     if (!mem) return;

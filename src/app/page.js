@@ -58,7 +58,9 @@ export default function Home() {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.slice(1) || 'dashboard';
-      const [baseRoute, queryString] = hash.split('?');
+      // If there is a trailing tab hash fragment (e.g. #workouts), strip it for clean query parsing
+      const cleanHash = hash.includes('#') ? hash.split('#')[0] : hash;
+      const [baseRoute, queryString] = cleanHash.split('?');
       const params = new URLSearchParams(queryString || '');
       
       // Handle setting restrictions for Demo users
