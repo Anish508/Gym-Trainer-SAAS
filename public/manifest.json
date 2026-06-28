@@ -1,0 +1,23 @@
+{
+  "name": "Keerthan MindFit - Gym Management System",
+  "short_name": "MindFit",
+  "description": "Premium Gym & Fitness Management Application",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#FF2A5F",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=192&h=192&fit=crop",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=512&h=512&fit=crop",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
