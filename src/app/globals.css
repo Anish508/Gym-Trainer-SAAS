@@ -1668,3 +1668,9 @@ input, select, textarea {
   background: rgba(255, 42, 95, 0.15);
   border-color: rgba(255, 42, 95, 0.4);
 }
+
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 1.5rem !important;
+  }
+}

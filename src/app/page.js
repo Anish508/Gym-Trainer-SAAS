@@ -15,7 +15,7 @@ import AttendanceView from '@/components/views/AttendanceView';
 import SettingsView from '@/components/views/SettingsView';
 import MemberProfileView from '@/components/views/MemberProfileView';
 
-import { Mail, Lock, ArrowRight, Menu } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Menu, Eye, EyeOff } from 'lucide-react';
 
 export default function Home() {
   const { user, login, loading, isDemo } = useAuth();
@@ -33,6 +33,7 @@ export default function Home() {
   const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Sidebar collapse
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -183,16 +184,38 @@ export default function Home() {
             
             <div className="form-group">
               <label htmlFor="admin-password">Password</label>
-              <div className="input-with-icon">
+              <div className="input-with-icon" style={{ position: 'relative' }}>
                 <Lock size={18} />
                 <input 
-                  type="password" 
+                  type={showPassword ? "text" : "password"} 
                   id="admin-password" 
                   placeholder="••••••••" 
                   required 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  style={{ paddingRight: '2.8rem' }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0.2rem',
+                    outline: 'none'
+                  }}
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -214,11 +237,6 @@ export default function Home() {
               <ArrowRight size={18} />
             </button>
           </form>
-
-          <div className="auth-footer-info">
-            <p>Demo Login 1: <code>keerthanofficial@gmail.com</code> / <code>keerthan123</code></p>
-            <p>Demo Login 2: <code>dhanush@gmail.com</code> / <code>dhanush123</code></p>
-          </div>
         </div>
       </div>
     );
