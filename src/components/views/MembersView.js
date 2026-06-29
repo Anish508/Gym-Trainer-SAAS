@@ -442,7 +442,7 @@ export default function MembersView() {
                 return (
                   <tr key={m.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }} className="table-row-hover">
                     <td style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                      <img src={m.profilePhoto || 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=100&fit=crop'} alt={m.fullName} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
+                      <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.95rem' }}>{m.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 600, color: '#fff' }}>{m.fullName}</div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{m.email}</div>
@@ -498,7 +498,7 @@ export default function MembersView() {
                 
                 {/* Header: Photo and Badges */}
                 <div className="mobile-card-header" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <img src={m.profilePhoto || 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=100&fit=crop'} alt={m.fullName} style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
+                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.1rem' }}>{m.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</div>
                   <div style={{ flex: 1 }}>
                     <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#fff', margin: 0 }}>{m.fullName}</h4>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ID: {m.id}</span>
@@ -602,7 +602,7 @@ export default function MembersView() {
                     <label>Full Name *</label>
                     <input type="text" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} />
                   </div>
-                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                     <div className="form-group">
                       <label>Gender</label>
                       <select value={formData.gender} onChange={(e) => setFormData({ ...formData, gender: e.target.value })}>
@@ -615,8 +615,6 @@ export default function MembersView() {
                       <label>Age</label>
                       <input type="number" min="10" max="100" value={formData.age} onChange={(e) => setFormData({ ...formData, age: e.target.value })} />
                     </div>
-                  </div>
-                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <div className="form-group">
                       <label>Blood Group</label>
                       <select value={formData.bloodGroup} onChange={(e) => setFormData({ ...formData, bloodGroup: e.target.value })}>
@@ -630,10 +628,6 @@ export default function MembersView() {
                         <option value="AB+">AB+</option>
                         <option value="AB-">AB-</option>
                       </select>
-                    </div>
-                    <div className="form-group">
-                      <label>Profile Image URL</label>
-                      <input type="text" value={formData.profilePhoto} onChange={(e) => setFormData({ ...formData, profilePhoto: e.target.value })} />
                     </div>
                   </div>
                   <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.8rem' }}>
@@ -786,12 +780,12 @@ export default function MembersView() {
                 )}
                 
                 {formStep < 3 ? (
-                  <button type="button" className="btn-primary" onClick={handleNextStep} style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '120px', marginLeft: 'auto' }}>
+                  <button key="btn-next" type="button" className="btn-primary" onClick={handleNextStep} style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '120px', marginLeft: 'auto' }}>
                     <span>Next</span>
                     <ChevronRight size={16} />
                   </button>
                 ) : (
-                  <button type="submit" className="btn-primary" style={{ width: '160px', marginLeft: 'auto' }}>
+                  <button key="btn-submit" type="submit" className="btn-primary" style={{ width: '160px', marginLeft: 'auto' }}>
                     <span>Save Client Details</span>
                   </button>
                 )}

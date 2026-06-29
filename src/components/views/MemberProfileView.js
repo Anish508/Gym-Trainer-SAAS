@@ -23,7 +23,8 @@ import {
   Activity,
   Award,
   TrendingUp,
-  Droplet
+  Droplet,
+  X
 } from 'lucide-react';
 
 export default function MemberProfileView({ memberId, onBack }) {
@@ -82,6 +83,16 @@ export default function MemberProfileView({ memberId, onBack }) {
     status: 'paid',
     transactionId: '',
     dueDate: ''
+  });
+
+  // PT Config Modal State
+  const [showPTForm, setShowPTForm] = useState(false);
+  const [ptForm, setPtForm] = useState({
+    isPT: false,
+    ptFees: '',
+    ptSchedule: '',
+    ptSessionsTotal: 10,
+    ptSessionsCompleted: 0
   });
 
   useEffect(() => {
@@ -218,6 +229,27 @@ export default function MemberProfileView({ memberId, onBack }) {
       showToast('success', "PT Session pack renewed/reset successfully.");
       loadProfileData();
       window.dispatchEvent(new Event('db-change'));
+    }
+  };
+
+  const handleSavePTEnrollment = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        isPT: ptForm.isPT,
+        ptFees: ptForm.isPT ? Number(ptForm.ptFees) : 0,
+        ptSchedule: ptForm.isPT ? ptForm.ptSchedule : '',
+        ptSessionsCompleted: ptForm.isPT ? Number(ptForm.ptSessionsCompleted) : 0,
+        ptSessionsTotal: ptForm.isPT ? Number(ptForm.ptSessionsTotal) : 10
+      };
+      await dbUpdate('members', memberId, payload);
+      showToast('success', ptForm.isPT ? "Personal Training configured successfully!" : "PT enrollment disabled.");
+      setShowPTForm(false);
+      loadProfileData();
+      window.dispatchEvent(new Event('db-change'));
+    } catch (err) {
+      console.error(err);
+      showToast('error', "Failed to configure PT details.");
     }
   };
 
@@ -532,13 +564,27 @@ export default function MemberProfileView({ memberId, onBack }) {
             </div>
           ) : null}
 
-          <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-            <button className="btn-primary" onClick={handleMarkPTComplete} disabled={Number(member.ptSessionsCompleted) >= Number(member.ptSessionsTotal)} style={{ flex: 1, minHeight: '40px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+            <button className="btn-primary" onClick={handleMarkPTComplete} disabled={Number(member.ptSessionsCompleted) >= Number(member.ptSessionsTotal)} style={{ width: '100%', minHeight: '40px' }}>
               Mark PT Complete
             </button>
-            <button className="btn-secondary" onClick={handleResetPTCounter} style={{ minHeight: '40px' }}>
-              Renew
-            </button>
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <button type="button" className="btn-secondary" onClick={() => {
+                setPtForm({
+                  isPT: true,
+                  ptFees: member.ptFees || '',
+                  ptSchedule: member.ptSchedule || '',
+                  ptSessionsTotal: member.ptSessionsTotal || 10,
+                  ptSessionsCompleted: member.ptSessionsCompleted || 0
+                });
+                setShowPTForm(true);
+              }} style={{ flex: 1, minHeight: '40px', fontSize: '0.85rem' }}>
+                Edit PT Info
+              </button>
+              <button type="button" className="btn-secondary" onClick={handleResetPTCounter} style={{ flex: 1, minHeight: '40px', fontSize: '0.85rem' }}>
+                Reset Pack
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -546,6 +592,18 @@ export default function MemberProfileView({ memberId, onBack }) {
           <QRCodeSVG value={member.id} size={150} level="H" />
           <strong style={{ fontSize: '1.1rem', letterSpacing: '2px', fontFamily: 'monospace' }}>{member.id}</strong>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Check-in QR Code</span>
+          <button type="button" className="btn-secondary" onClick={() => {
+            setPtForm({
+              isPT: false,
+              ptFees: '',
+              ptSchedule: '',
+              ptSessionsTotal: 10,
+              ptSessionsCompleted: 0
+            });
+            setShowPTForm(true);
+          }} style={{ marginTop: '0.5rem', width: '100%', minHeight: '40px', fontSize: '0.85rem' }}>
+            Enroll in PT
+          </button>
         </div>
       )}
 
@@ -1148,7 +1206,9 @@ export default function MemberProfileView({ memberId, onBack }) {
 
       {/* Header card banner */}
       <div className="profile-header card-glass" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', borderRadius: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <img src={member.profilePhoto || 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300&fit=crop'} alt={member.fullName} style={{ width: '70px', height: '70px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--color-primary)' }} />
+        <div style={{ width: '70px', height: '70px', borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.5rem', border: '3px solid var(--color-primary)' }}>
+          {member.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+        </div>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#fff', fontFamily: 'var(--font-outfit)' }}>{member.fullName}</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '2px' }}>
@@ -1284,6 +1344,93 @@ export default function MemberProfileView({ memberId, onBack }) {
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button type="button" className="btn-secondary" onClick={() => setShowPaymentModal(false)}>Cancel</button>
                 <button type="submit" className="btn-primary">Record Payment</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIGURE PT MODAL DIALOG */}
+      {showPTForm && (
+        <div className="modal-overlay" style={{ display: 'flex', zIndex: 2000 }}>
+          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '440px', width: '90%', padding: '1.5rem', borderRadius: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>Configure Personal Training (PT)</h3>
+              <button type="button" className="btn-icon" onClick={() => setShowPTForm(false)}><X size={18} /></button>
+            </div>
+            
+            <form onSubmit={handleSavePTEnrollment} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.25rem 0' }}>
+                <input 
+                  type="checkbox" 
+                  id="modalIsPT" 
+                  checked={ptForm.isPT} 
+                  onChange={(e) => setPtForm({ ...ptForm, isPT: e.target.checked })}
+                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                />
+                <label htmlFor="modalIsPT" style={{ cursor: 'pointer', fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Enrolled in Personal Training (PT)</label>
+              </div>
+
+              {ptForm.isPT && (
+                <>
+                  <div className="form-group">
+                    <label>PT Fees (₹) *</label>
+                    <input 
+                      type="number" 
+                      required 
+                      placeholder="5000"
+                      value={ptForm.ptFees} 
+                      onChange={(e) => setPtForm({ ...ptForm, ptFees: e.target.value })}
+                      style={{ minHeight: '40px' }}
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>PT Schedule (Slot) *</label>
+                    <select 
+                      required
+                      value={ptForm.ptSchedule} 
+                      onChange={(e) => setPtForm({ ...ptForm, ptSchedule: e.target.value })}
+                      style={{ minHeight: '40px' }}
+                    >
+                      <option value="">Choose slot...</option>
+                      {gymSettings?.ptSlots?.map(slot => (
+                        <option key={slot} value={slot}>{slot}</option>
+                      )) || (
+                        <option value="06:00 AM - 07:00 AM">06:00 AM - 07:00 AM</option>
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
+                    <div className="form-group">
+                      <label>Sessions Completed</label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={ptForm.ptSessionsCompleted} 
+                        onChange={(e) => setPtForm({ ...ptForm, ptSessionsCompleted: Number(e.target.value) })}
+                        style={{ minHeight: '40px' }}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Total Pack Sessions</label>
+                      <input 
+                        type="number" 
+                        min="1"
+                        value={ptForm.ptSessionsTotal} 
+                        onChange={(e) => setPtForm({ ...ptForm, ptSessionsTotal: Number(e.target.value) })}
+                        style={{ minHeight: '40px' }}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowPTForm(false)} style={{ minHeight: '40px' }}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{ minHeight: '40px' }}>Save PT Config</button>
               </div>
             </form>
           </div>

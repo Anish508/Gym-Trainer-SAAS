@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { dbReadAll, dbCreate, dbUpdate } from '@/lib/db';
+import { dbReadAll, dbCreate, dbUpdate, dbDelete } from '@/lib/db';
 import { exportToCSV } from '@/lib/utils';
 import { useToast } from '@/context/ToastContext';
 import { FileText, Calendar, CheckSquare, Clock, AlertCircle, X, HelpCircle } from 'lucide-react';
@@ -43,7 +43,7 @@ export default function AttendanceView() {
   const handleStatusChange = async (memberId, newStatus) => {
     const existing = attendance.find(a => a.memberId === memberId);
     
-    // Check if attendance is already marked for this member
+    // Check if attendance is already marked with this exact status
     if (existing && existing.status === newStatus) {
       showToast('info', `Attendance already marked as ${newStatus}.`);
       return;
@@ -68,11 +68,21 @@ export default function AttendanceView() {
         });
       }
       
+      // If changing from absent to present/late, clean up today's rescheduling record if any exists
+      if (newStatus !== 'absent') {
+        const resList = await dbReadAll('rescheduledWorkouts') || [];
+        const existingRes = resList.find(r => r.memberId === memberId && r.date === todayStr);
+        if (existingRes) {
+          await dbDelete('rescheduledWorkouts', existingRes.id);
+          showToast('info', "Removed rescheduled workout entry because member is present.");
+        }
+      }
+
       showToast('success', `Attendance marked: ${newStatus.toUpperCase()}`);
       loadAttendanceData();
       window.dispatchEvent(new Event('db-change'));
 
-      // NEW FEATURE 1: Missed Workout Rescheduling popup triggers on "Absent"
+      // Missed Workout Rescheduling popup triggers on "Absent"
       if (newStatus === 'absent') {
         const memberObj = members.find(m => m.id === memberId);
         
@@ -202,12 +212,13 @@ export default function AttendanceView() {
               members.map(m => {
                 const currentStatus = getMemberStatus(m.id);
                 const checkInTime = getMemberCheckInTime(m.id);
-                const isMarked = currentStatus !== null;
 
                 return (
                   <tr key={m.id} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }} className="table-row-hover">
                     <td style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                      <img src={m.profilePhoto || 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=100&fit=crop'} alt={m.fullName} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                        {m.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                      </div>
                       <span style={{ fontWeight: 600, color: '#fff' }}>{m.fullName}</span>
                     </td>
                     <td style={{ padding: '1rem', fontFamily: 'monospace' }}>{m.id}</td>
@@ -220,7 +231,7 @@ export default function AttendanceView() {
                       <div className="status-pill-group" style={{ display: 'inline-flex', gap: '0.4rem' }}>
                         <button 
                           type="button"
-                          disabled={isMarked}
+                          disabled={currentStatus === 'present'}
                           onClick={() => handleStatusChange(m.id, 'present')}
                           style={{
                             padding: '0.4rem 1rem',
@@ -230,8 +241,8 @@ export default function AttendanceView() {
                             background: currentStatus === 'present' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
                             border: currentStatus === 'present' ? '1px solid #10B981' : '1px solid var(--border-glass)',
                             color: currentStatus === 'present' ? '#10B981' : 'var(--text-secondary)',
-                            cursor: isMarked ? 'not-allowed' : 'pointer',
-                            opacity: isMarked && currentStatus !== 'present' ? 0.4 : 1,
+                            cursor: currentStatus === 'present' ? 'not-allowed' : 'pointer',
+                            opacity: currentStatus === 'present' ? 1 : 0.6,
                             transition: 'all 0.2s ease'
                           }}
                         >
@@ -239,7 +250,7 @@ export default function AttendanceView() {
                         </button>
                         <button 
                           type="button"
-                          disabled={isMarked}
+                          disabled={currentStatus === 'late'}
                           onClick={() => handleStatusChange(m.id, 'late')}
                           style={{
                             padding: '0.4rem 1rem',
@@ -249,8 +260,8 @@ export default function AttendanceView() {
                             background: currentStatus === 'late' ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
                             border: currentStatus === 'late' ? '1px solid #F59E0B' : '1px solid var(--border-glass)',
                             color: currentStatus === 'late' ? '#F59E0B' : 'var(--text-secondary)',
-                            cursor: isMarked ? 'not-allowed' : 'pointer',
-                            opacity: isMarked && currentStatus !== 'late' ? 0.4 : 1,
+                            cursor: currentStatus === 'late' ? 'not-allowed' : 'pointer',
+                            opacity: currentStatus === 'late' ? 1 : 0.6,
                             transition: 'all 0.2s ease'
                           }}
                         >
@@ -258,7 +269,7 @@ export default function AttendanceView() {
                         </button>
                         <button 
                           type="button"
-                          disabled={isMarked}
+                          disabled={currentStatus === 'absent'}
                           onClick={() => handleStatusChange(m.id, 'absent')}
                           style={{
                             padding: '0.4rem 1rem',
@@ -268,8 +279,8 @@ export default function AttendanceView() {
                             background: currentStatus === 'absent' ? 'rgba(255, 42, 95, 0.15)' : 'transparent',
                             border: currentStatus === 'absent' ? '1px solid #FF2A5F' : '1px solid var(--border-glass)',
                             color: currentStatus === 'absent' ? '#FF477E' : 'var(--text-secondary)',
-                            cursor: isMarked ? 'not-allowed' : 'pointer',
-                            opacity: isMarked && currentStatus !== 'absent' ? 0.4 : 1,
+                            cursor: currentStatus === 'absent' ? 'not-allowed' : 'pointer',
+                            opacity: currentStatus === 'absent' ? 1 : 0.6,
                             transition: 'all 0.2s ease'
                           }}
                         >
@@ -298,7 +309,9 @@ export default function AttendanceView() {
             return (
               <div key={m.id} className="mobile-card" style={{ gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <img src={m.profilePhoto || 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=100&fit=crop'} alt={m.fullName} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                    {m.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                  </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.95rem' }}>{m.fullName}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ID: {m.id}</div>
@@ -323,7 +336,7 @@ export default function AttendanceView() {
                 <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                   <button 
                     className="btn-secondary" 
-                    disabled={isMarked}
+                    disabled={currentStatus === 'present'}
                     onClick={() => handleStatusChange(m.id, 'present')}
                     style={{
                       flex: 1,
@@ -333,14 +346,14 @@ export default function AttendanceView() {
                       background: currentStatus === 'present' ? 'rgba(16, 185, 129, 0.2)' : 'none',
                       border: currentStatus === 'present' ? '1px solid #10B981' : '1px solid var(--border-glass)',
                       color: currentStatus === 'present' ? '#10B981' : '#fff',
-                      opacity: isMarked && currentStatus !== 'present' ? 0.3 : 1
+                      opacity: currentStatus === 'present' ? 1 : 0.6
                     }}
                   >
                     Present
                   </button>
                   <button 
                     className="btn-secondary" 
-                    disabled={isMarked}
+                    disabled={currentStatus === 'late'}
                     onClick={() => handleStatusChange(m.id, 'late')}
                     style={{
                       flex: 1,
@@ -350,14 +363,14 @@ export default function AttendanceView() {
                       background: currentStatus === 'late' ? 'rgba(245, 158, 11, 0.2)' : 'none',
                       border: currentStatus === 'late' ? '1px solid #F59E0B' : '1px solid var(--border-glass)',
                       color: currentStatus === 'late' ? '#F59E0B' : '#fff',
-                      opacity: isMarked && currentStatus !== 'late' ? 0.3 : 1
+                      opacity: currentStatus === 'late' ? 1 : 0.6
                     }}
                   >
                     Late
                   </button>
                   <button 
                     className="btn-secondary" 
-                    disabled={isMarked}
+                    disabled={currentStatus === 'absent'}
                     onClick={() => handleStatusChange(m.id, 'absent')}
                     style={{
                       flex: 1,
@@ -367,7 +380,7 @@ export default function AttendanceView() {
                       background: currentStatus === 'absent' ? 'rgba(255, 42, 95, 0.15)' : 'none',
                       border: currentStatus === 'absent' ? '1px solid #FF2A5F' : '1px solid var(--border-glass)',
                       color: currentStatus === 'absent' ? '#FF477E' : '#fff',
-                      opacity: isMarked && currentStatus !== 'absent' ? 0.3 : 1
+                      opacity: currentStatus === 'absent' ? 1 : 0.6
                     }}
                   >
                     Absent
