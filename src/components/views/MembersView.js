@@ -223,8 +223,66 @@ export default function MembersView() {
     setShowDrawer(true);
   };
 
+  const validateStep = (step) => {
+    if (step === 1) {
+      if (!formData.fullName || !formData.fullName.trim()) {
+        showToast('error', "Full Name is required.");
+        return false;
+      }
+    }
+    if (step === 2) {
+      if (!formData.mobileNumber || !formData.mobileNumber.trim()) {
+        showToast('error', "Mobile Number is required.");
+        return false;
+      }
+      if (!formData.email || !formData.email.trim()) {
+        showToast('error', "Email Address is required.");
+        return false;
+      }
+      if (!formData.emergencyContact || !formData.emergencyContact.trim()) {
+        showToast('error', "Emergency Contact is required.");
+        return false;
+      }
+    }
+    if (step === 3) {
+      if (!formData.joinDate) {
+        showToast('error', "Join Date is required.");
+        return false;
+      }
+      if (formData.isPT) {
+        if (!formData.ptSchedule) {
+          showToast('error', "PT Schedule Slot is required for PT client.");
+          return false;
+        }
+        if (!formData.ptFees) {
+          showToast('error', "PT Fees are required for PT client.");
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  const handleNextStep = () => {
+    if (validateStep(formStep)) {
+      setFormStep(prev => prev + 1);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // If user is on Step 1 or Step 2 and submits (e.g., by pressing Enter), advance step instead of submitting
+    if (formStep < 3) {
+      handleNextStep();
+      return;
+    }
+
+    // Final validation checks for all steps
+    if (!validateStep(1)) { setFormStep(1); return; }
+    if (!validateStep(2)) { setFormStep(2); return; }
+    if (!validateStep(3)) { setFormStep(3); return; }
+
     try {
       if (editingMember) {
         // Update
@@ -304,7 +362,7 @@ export default function MembersView() {
         </div>
 
         {/* Filters and sorting */}
-        <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', flex: '0 0 auto' }}>
+        <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', flex: '0 0 auto' }} className="filters-container-mobile">
           
           <select 
             value={statusFilter} 
@@ -439,19 +497,29 @@ export default function MembersView() {
               <div key={m.id} className="mobile-card">
                 
                 {/* Header: Photo and Badges */}
-                <div className="mobile-card-header">
+                <div className="mobile-card-header" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <img src={m.profilePhoto || 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=100&fit=crop'} alt={m.fullName} style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }} />
                   <div style={{ flex: 1 }}>
-                    <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#fff' }}>{m.fullName}</h4>
+                    <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#fff', margin: 0 }}>{m.fullName}</h4>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ID: {m.id}</span>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
-                    <span className={`badge ${m.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '0.65rem' }}>
-                      {m.status.toUpperCase()}
-                    </span>
-                    {m.isPT && (
-                      <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>PT</span>
-                    )}
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+                      <span className={`badge ${m.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '0.65rem' }}>
+                        {m.status.toUpperCase()}
+                      </span>
+                      {m.isPT && (
+                        <span className="badge badge-info" style={{ fontSize: '0.65rem' }}>PT</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button className="btn-icon-action" onClick={() => handleOpenEdit(m)} style={{ width: '32px', height: '32px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }} title="Edit">
+                        <Edit3 size={14} style={{ color: 'var(--text-secondary)' }} />
+                      </button>
+                      <button className="btn-icon-action delete" onClick={() => handleDelete(m.id, m.fullName)} style={{ width: '32px', height: '32px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px' }} title="Delete">
+                        <Trash2 size={14} style={{ color: '#FF2A5F' }} />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -476,30 +544,24 @@ export default function MembersView() {
                   </div>
                 </div>
 
-                {/* Card Actions Footer */}
-                <div className="mobile-card-footer" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', marginTop: '4px' }}>
-                  <a href={`#member-profile?id=${m.id}`} className="btn-secondary" style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '0.5rem', minHeight: '36px', fontSize: '0.8rem' }}>
-                    <Eye size={14} />
-                    <span>Open</span>
+                {/* Card Actions Footer (2x2 Grid) */}
+                <div className="mobile-card-footer" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem', marginTop: '4px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <a href={`#member-profile?id=${m.id}`} className="btn-secondary" style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', padding: '0.6rem', minHeight: '44px', fontSize: '0.85rem' }}>
+                    <Eye size={15} />
+                    <span>Open Profile</span>
                   </a>
-                  <button className="btn-secondary" onClick={() => window.location.hash = '#attendance'} style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '0.5rem', minHeight: '36px', fontSize: '0.8rem' }}>
-                    <UserCheck size={14} />
-                    <span>Check-in</span>
+                  <button className="btn-secondary" onClick={() => window.location.hash = '#attendance'} style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', padding: '0.6rem', minHeight: '44px', fontSize: '0.85rem' }}>
+                    <UserCheck size={15} />
+                    <span>Attendance</span>
                   </button>
-                  <a href={`#member-profile?id=${m.id}#billing`} className="btn-secondary" style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '0.5rem', minHeight: '36px', fontSize: '0.8rem' }}>
-                    <CreditCard size={14} />
-                    <span>Payment</span>
+                  <a href={`#member-profile?id=${m.id}#billing`} className="btn-secondary" style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', padding: '0.6rem', minHeight: '44px', fontSize: '0.85rem' }}>
+                    <CreditCard size={15} />
+                    <span>Log Payment</span>
                   </a>
-                  <a href={`#member-profile?id=${m.id}#workouts`} className="btn-secondary" style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '0.5rem', minHeight: '36px', fontSize: '0.8rem' }}>
-                    <Dumbbell size={14} />
-                    <span>Workout</span>
+                  <a href={`#member-profile?id=${m.id}#workouts`} className="btn-secondary" style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', padding: '0.6rem', minHeight: '44px', fontSize: '0.85rem' }}>
+                    <Dumbbell size={15} />
+                    <span>Assign Workout</span>
                   </a>
-                  <button className="btn-secondary" onClick={() => handleOpenEdit(m)} style={{ padding: '0.5rem', minHeight: '36px', maxWidth: '36px' }} title="Edit">
-                    <Edit3 size={14} />
-                  </button>
-                  <button className="btn-secondary" onClick={() => handleDelete(m.id, m.fullName)} style={{ padding: '0.5rem', minHeight: '36px', maxWidth: '36px', color: '#FF2A5F' }} title="Delete">
-                    <Trash2 size={14} />
-                  </button>
                 </div>
 
               </div>
@@ -538,7 +600,7 @@ export default function MembersView() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div className="form-group">
                     <label>Full Name *</label>
-                    <input type="text" required value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} />
+                    <input type="text" value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} />
                   </div>
                   <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <div className="form-group">
@@ -596,11 +658,11 @@ export default function MembersView() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div className="form-group">
                     <label>Mobile Number *</label>
-                    <input type="tel" required value={formData.mobileNumber} onChange={(e) => setFormData({ ...formData, mobileNumber: e.target.value })} />
+                    <input type="tel" value={formData.mobileNumber} onChange={(e) => setFormData({ ...formData, mobileNumber: e.target.value })} />
                   </div>
                   <div className="form-group">
                     <label>Email Address *</label>
-                    <input type="email" required value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                    <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
                   </div>
                   <div className="form-group">
                     <label>Home Address</label>
@@ -608,7 +670,7 @@ export default function MembersView() {
                   </div>
                   <div className="form-group">
                     <label>Emergency Contact (Name & Phone) *</label>
-                    <input type="text" required placeholder="John Doe - 9876543210" value={formData.emergencyContact} onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })} />
+                    <input type="text" placeholder="John Doe - 9876543210" value={formData.emergencyContact} onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })} />
                   </div>
                 </div>
               )}
@@ -647,7 +709,7 @@ export default function MembersView() {
                   <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <div className="form-group">
                       <label>Join Date *</label>
-                      <input type="date" required value={formData.joinDate} onChange={(e) => setFormData({ ...formData, joinDate: e.target.value })} />
+                      <input type="date" value={formData.joinDate} onChange={(e) => setFormData({ ...formData, joinDate: e.target.value })} />
                     </div>
                     <div className="form-group">
                       <label>Roster Status</label>
@@ -724,7 +786,7 @@ export default function MembersView() {
                 )}
                 
                 {formStep < 3 ? (
-                  <button type="button" className="btn-primary" onClick={() => setFormStep(formStep + 1)} style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '120px', marginLeft: 'auto' }}>
+                  <button type="button" className="btn-primary" onClick={handleNextStep} style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '120px', marginLeft: 'auto' }}>
                     <span>Next</span>
                     <ChevronRight size={16} />
                   </button>
