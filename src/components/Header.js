@@ -64,8 +64,14 @@ export default function Header({ viewTitle, currentTheme, toggleTheme }) {
 
   return (
     <header className="app-header">
-      <div className="header-left">
-        <h1 className="view-title">{viewTitle}</h1>
+      <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+        {/* Gym Logo for Mobile Sticky Header */}
+        <div className="header-logo-mobile" style={{ display: 'flex', alignItems: 'center' }}>
+          <span className="logo-spark" style={{ fontWeight: 800, fontSize: '1.2rem', letterSpacing: '0.5px' }}>K</span>
+          <span className="logo-fit" style={{ fontWeight: 800, fontSize: '1.2rem', color: 'var(--color-primary)' }}>M</span>
+        </div>
+        <div style={{ height: '18px', width: '1px', background: 'rgba(255,255,255,0.15)', margin: '0 0.1rem' }} className="header-divider-mobile"></div>
+        <h1 className="view-title" style={{ fontSize: '1.15rem', fontWeight: 700 }}>{viewTitle}</h1>
       </div>
       <div className="header-right">
         {/* Theme Toggle Button (Renders both for CSS display rules to toggle) */}
