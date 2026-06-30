@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { dbReadAll, dbCreate, dbUpdate } from '@/lib/db';
 import { exportToCSV } from '@/lib/utils';
 import { useToast } from '@/context/ToastContext';
-import { FileText, Calendar, CheckSquare, Clock, Search, X } from 'lucide-react';
+import { FileText, Calendar, CheckSquare, Clock, Search } from 'lucide-react';
 
 export default function AttendanceView() {
   const { showToast } = useToast();
@@ -14,17 +14,6 @@ export default function AttendanceView() {
   
   // Search state
   const [searchTerm, setSearchTerm] = useState('');
-
-  // Rescheduling Modal State
-  const [showReschedule, setShowReschedule] = useState(false);
-  const [rescheduleData, setRescheduleData] = useState({
-    memberId: '',
-    memberName: '',
-    workoutName: 'Daily Workout',
-    rescheduledTo: new Date(Date.now() + 86400000).toISOString().split('T')[0], // tomorrow
-    note: ''
-  });
-
   const todayStr = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
@@ -75,9 +64,8 @@ export default function AttendanceView() {
       loadAttendanceData();
       window.dispatchEvent(new Event('db-change'));
 
-      // If marked absent, trigger workout rescheduling dialog
+      // If marked absent, automatically register a Missed Workout log
       if (newStatus === 'absent') {
-        const memberObj = members.find(m => m.id === memberId);
         const workoutObj = workouts.find(w => w.memberId === memberId);
         
         let todayWorkoutName = 'Daily Workout';
@@ -88,49 +76,36 @@ export default function AttendanceView() {
           if (dayPlan) {
             if (typeof dayPlan === 'string') {
               todayWorkoutName = dayPlan;
+            } else if (dayPlan.workoutName) {
+              todayWorkoutName = dayPlan.workoutName;
             } else if (dayPlan.name) {
               todayWorkoutName = dayPlan.name;
             }
           }
         }
 
-        setRescheduleData({
-          memberId,
-          memberName: memberObj ? memberObj.fullName : 'Client',
-          workoutName: todayWorkoutName,
-          rescheduledTo: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-          note: ''
-        });
-        
-        // Wait brief delay to show modal
-        setTimeout(() => {
-          setShowReschedule(true);
-        }, 500);
+        // Check if missed workout log already exists for today to avoid duplicate inserts
+        const allRescheduled = await dbReadAll('rescheduledWorkouts') || [];
+        const alreadyLogged = allRescheduled.find(r => r.memberId === memberId && r.date === todayStr);
+
+        if (!alreadyLogged) {
+          const resId = `RES-${memberId}-${Math.floor(1000 + Math.random() * 9000)}`;
+          await dbCreate('rescheduledWorkouts', {
+            id: resId,
+            memberId: memberId,
+            date: todayStr,
+            workoutName: todayWorkoutName,
+            status: 'Missed',
+            rescheduledTo: '',
+            note: 'Automatically flagged missed workout due to client absence.'
+          });
+          showToast('info', 'Today\'s workout has been automatically logged as Missed.');
+          window.dispatchEvent(new Event('db-change'));
+        }
       }
 
     } catch (e) {
       showToast('error', "Failed to record check-in.");
-    }
-  };
-
-  const handleSaveReschedule = async (e) => {
-    e.preventDefault();
-    try {
-      const resId = `RES-${rescheduleData.memberId}-${Math.floor(1000 + Math.random() * 9000)}`;
-      await dbCreate('rescheduledWorkouts', {
-        id: resId,
-        memberId: rescheduleData.memberId,
-        date: todayStr,
-        workoutName: rescheduleData.workoutName,
-        status: 'rescheduled',
-        rescheduledTo: rescheduleData.rescheduledTo,
-        note: rescheduleData.note
-      });
-      showToast('success', `Workout rescheduled to ${rescheduleData.rescheduledTo} successfully!`);
-      setShowReschedule(false);
-      window.dispatchEvent(new Event('db-change'));
-    } catch(err) {
-      showToast('error', "Failed to reschedule workout.");
     }
   };
 
@@ -363,62 +338,10 @@ export default function AttendanceView() {
                   Absent
                 </button>
               </div>
-
             </div>
           );
         })}
       </div>
-
-      {/* RESCHEDULE WORKOUT BOTTOM-SHEET / MODAL */}
-      {showReschedule && (
-        <div className="modal-overlay" style={{ display: 'flex', zIndex: 2000 }}>
-          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '440px', width: '90%', padding: '1.5rem', borderRadius: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>Reschedule Missed Workout</h3>
-              <button className="btn-icon" onClick={() => setShowReschedule(false)}><X size={18} /></button>
-            </div>
-            
-            <form onSubmit={handleSaveReschedule} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                Member <strong>{rescheduleData.memberName}</strong> was marked absent. Reschedule today's workout split (<strong>{rescheduleData.workoutName}</strong>) to another day?
-              </div>
-
-              <div className="form-group">
-                <label>Reschedule Workout Target</label>
-                <input 
-                  type="text" 
-                  value={rescheduleData.workoutName} 
-                  onChange={(e) => setRescheduleData({ ...rescheduleData, workoutName: e.target.value })} 
-                />
-              </div>
-
-              <div className="form-group">
-                <label>New Reschedule Date</label>
-                <input 
-                  type="date" 
-                  value={rescheduleData.rescheduledTo} 
-                  onChange={(e) => setRescheduleData({ ...rescheduleData, rescheduledTo: e.target.value })} 
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Trainer Notes / Remarks</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Missed session due to travel" 
-                  value={rescheduleData.note} 
-                  onChange={(e) => setRescheduleData({ ...rescheduleData, note: e.target.value })} 
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowReschedule(false)}>Skip</button>
-                <button type="submit" className="btn-primary">Save Reschedule</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
     </div>
   );

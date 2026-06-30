@@ -19,7 +19,8 @@ import {
   Activity,
   FileSpreadsheet,
   Zap,
-  TrendingUp
+  TrendingUp,
+  X
 } from 'lucide-react';
 
 export default function DashboardView() {
@@ -42,6 +43,14 @@ export default function DashboardView() {
   const [todaySchedule, setTodaySchedule] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
   const [expiringMemberships, setExpiringMemberships] = useState([]);
+  const [rescheduledToday, setRescheduledToday] = useState([]);
+  const [missedWorkouts, setMissedWorkouts] = useState([]);
+
+  // Smart Reschedule Modal States
+  const [showSmartReschedule, setShowSmartReschedule] = useState(false);
+  const [targetRescheduleLog, setTargetRescheduleLog] = useState(null);
+  const [rescheduleOption, setRescheduleOption] = useState('tomorrow'); // tomorrow, custom-date, end-of-week, next-workout-day
+  const [customRescheduleDate, setCustomRescheduleDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     loadDashboardData();
@@ -55,6 +64,8 @@ export default function DashboardView() {
       const allMembers = await dbReadAll('members') || [];
       const allPayments = await dbReadAll('payments') || [];
       const allAttendance = await dbReadAll('attendance') || [];
+      const allWorkouts = await dbReadAll('workouts') || [];
+      const allRescheduled = await dbReadAll('rescheduledWorkouts') || [];
 
       setMembers(allMembers);
       setPayments(allPayments);
@@ -73,7 +84,7 @@ export default function DashboardView() {
       ).length;
       const attPct = active > 0 ? Math.round((todayAttCount / active) * 100) : 0;
 
-      // 2. Compile Upcoming Membership Expiry (Next 30 days for dashboard renewals focus)
+      // 2. Compile Upcoming Membership Expiry
       const nextMonth = new Date();
       nextMonth.setDate(nextMonth.getDate() + 30);
       const today = new Date();
@@ -107,7 +118,7 @@ export default function DashboardView() {
         totalMembers: total,
         activeMembers: active,
         ptMembers: pt,
-        membershipRenewals: sortedExpiries.filter(e => e.daysLeft <= 7).length, // renewals focus count
+        membershipRenewals: sortedExpiries.filter(e => e.daysLeft <= 7).length,
         pendingPayments: pendingPay,
         todayAttendancePct: attPct
       });
@@ -125,22 +136,48 @@ export default function DashboardView() {
         return hour * 60 + minute;
       };
 
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const todayDayName = days[new Date().getDay()];
+
       const scheduledList = allMembers
-        .filter(m => m.isPT && m.ptSchedule && m.status === 'active')
-        .map(m => ({
-          id: m.id,
-          name: m.fullName,
-          time: m.ptSchedule,
-          timeVal: parseTime(m.ptSchedule),
-          goal: m.fitnessGoal || 'General Fitness'
-        }))
+        .filter(m => m.status === 'active')
+        .map(m => {
+          const workoutPlan = allWorkouts.find(w => w.memberId === m.id);
+          let todaySplitVal = 'Rest';
+          let hasActiveWorkout = false;
+          if (workoutPlan && workoutPlan.schedule) {
+            const dayVal = workoutPlan.schedule[todayDayName];
+            if (dayVal) {
+              if (typeof dayVal === 'object') {
+                if (dayVal.isRestDay) {
+                  todaySplitVal = 'Rest';
+                } else {
+                  todaySplitVal = dayVal.workoutName || 'Active Workout';
+                  hasActiveWorkout = true;
+                }
+              } else if (typeof dayVal === 'string') {
+                todaySplitVal = dayVal;
+                hasActiveWorkout = dayVal.toLowerCase() !== 'rest' && dayVal.toLowerCase() !== 'rest day';
+              }
+            }
+          }
+          return {
+            id: m.id,
+            name: m.fullName,
+            time: m.ptSchedule || 'General Session',
+            timeVal: m.ptSchedule ? parseTime(m.ptSchedule) : 999,
+            goal: m.fitnessGoal || 'General Fitness',
+            todaySplit: todaySplitVal,
+            isPT: m.isPT || false,
+            hasActiveWorkout
+          };
+        })
+        .filter(item => item.isPT || item.hasActiveWorkout)
         .sort((a, b) => a.timeVal - b.timeVal);
       setTodaySchedule(scheduledList);
 
       // 4. Compile Today's Activity Feed
       const activities = [];
-      
-      // Today's Checkins
       allAttendance
         .filter(a => a.date === todayStr)
         .forEach(a => {
@@ -155,7 +192,6 @@ export default function DashboardView() {
           }
         });
 
-      // Members who joined today
       allMembers
         .filter(m => m.joinDate === todayStr)
         .forEach(m => {
@@ -167,7 +203,6 @@ export default function DashboardView() {
           });
         });
 
-      // Renewals today
       allPayments
         .filter(p => p.paymentDate === todayStr && p.status === 'paid')
         .forEach(p => {
@@ -182,20 +217,32 @@ export default function DashboardView() {
           }
         });
 
-      // Sort activities descending
       activities.sort((a, b) => b.timestamp - a.timestamp);
-      
-      // Fallback dummy activities if empty to look premium and active
-      if (activities.length === 0) {
-        activities.push(
-          { time: '09:15 AM', message: 'Rahul checked in', type: 'attendance' },
-          { time: '10:30 AM', message: 'Ajay joined today', type: 'join' },
-          { time: '11:45 AM', message: 'Ramesh renewed membership', type: 'renew' },
-          { time: '02:00 PM', message: 'PT Session completed with Alex', type: 'pt' }
-        );
-      }
-
       setRecentActivities(activities.slice(0, 6));
+
+      // 5. Compile Rescheduled Workouts Today
+      const resToday = allRescheduled
+        .filter(r => r.rescheduledTo === todayStr)
+        .map(r => {
+          const mem = allMembers.find(m => m.id === r.memberId);
+          return {
+            ...r,
+            memberName: mem ? mem.fullName : 'Unknown Member'
+          };
+        });
+      setRescheduledToday(resToday);
+
+      // 6. Compile Missed Workouts Pending Rescheduling
+      const missedPending = allRescheduled
+        .filter(r => r.status?.toLowerCase() === 'missed')
+        .map(r => {
+          const mem = allMembers.find(m => m.id === r.memberId);
+          return {
+            ...r,
+            memberName: mem ? mem.fullName : 'Unknown Member'
+          };
+        });
+      setMissedWorkouts(missedPending);
 
     } catch (e) {
       console.error("Error loading dashboard data", e);
@@ -205,175 +252,204 @@ export default function DashboardView() {
 
   const convertTo24h = (time12h) => {
     if (!time12h || time12h === '--') return '00:00';
-    try {
-      const [time, modifier] = time12h.split(' ');
-      let [hours, minutes] = time.split(':');
-      if (hours === '12') {
-        hours = '00';
-      }
-      if (modifier === 'PM') {
-        hours = String(parseInt(hours, 10) + 12);
-      }
-      return `${hours}:${minutes}`;
-    } catch(e) {
-      return '00:00';
-    }
+    const match = time12h.match(/^(\d+):?(\d*)\s*(AM|PM)/i);
+    if (!match) return '00:00';
+    let hour = parseInt(match[1]);
+    const minute = match[2] ? parseInt(match[2]) : 0;
+    const ampm = match[3].toUpperCase();
+    if (ampm === 'PM' && hour < 12) hour += 12;
+    if (ampm === 'AM' && hour === 12) hour = 0;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
   };
 
   const handleRenewMember = async (memberId) => {
     try {
-      // Auto-renew mock: find client, record payment, update renewal dates
-      const member = members.find(m => m.id === memberId);
-      if (!member) return;
-
-      const durationMonths = member.membershipPlan === 'Yearly' ? 12 : 
-                             member.membershipPlan === 'Half-Yearly' ? 6 : 
-                             member.membershipPlan === 'Quarterly' ? 3 : 1;
+      const mem = await dbReadOne('members', memberId);
+      if (!mem) return;
       
-      const newStartDate = new Date().toISOString().split('T')[0];
-      const newRenewalDate = new Date();
-      newRenewalDate.setMonth(newRenewalDate.getMonth() + durationMonths);
-      const newRenewalStr = newRenewalDate.toISOString().split('T')[0];
+      const settingsObj = await dbReadOne('settings', 'settings');
+      const planPrice = settingsObj?.membershipPlans?.find(p => p.name === mem.membershipPlan)?.price || 2000;
+      const duration = settingsObj?.membershipPlans?.find(p => p.name === mem.membershipPlan)?.duration || 1;
 
-      // Update Member
-      await dbUpdate('members', memberId, {
-        status: 'active',
-        joinDate: newStartDate // update current period join
-      });
+      const newRenewal = new Date();
+      newRenewal.setMonth(newRenewal.getMonth() + duration);
+      const renewalStr = newRenewal.toISOString().split('T')[0];
 
-      // Record Bookkeeping Payment
-      const payId = `PAY${Math.floor(1000 + Math.random() * 9000)}`;
+      await dbUpdate('members', memberId, { status: 'active' });
+
       await dbCreate('payments', {
-        id: payId,
+        id: `PAY-${memberId}-${Math.floor(1000 + Math.random() * 9000)}`,
         memberId,
-        planType: member.membershipPlan,
-        amount: member.membershipPlan === 'Yearly' ? 15000 : 
-                member.membershipPlan === 'Half-Yearly' ? 8500 : 
-                member.membershipPlan === 'Quarterly' ? 5000 : 2000,
-        paymentDate: newStartDate,
-        dueDate: newRenewalStr,
+        planType: mem.membershipPlan,
+        amount: planPrice,
+        paymentDate: new Date().toISOString().split('T')[0],
+        dueDate: renewalStr,
         status: 'paid',
         transactionId: 'UPI-RENEW-DASH'
       });
 
-      showToast('success', `Successfully renewed membership for ${member.fullName}!`);
+      showToast('success', `${mem.fullName}'s membership renewed successfully!`);
       loadDashboardData();
-      window.dispatchEvent(new Event('db-change'));
     } catch(e) {
       showToast('error', 'Renewal failed.');
     }
   };
 
   const handleExportMembers = () => {
-    if (members.length === 0) {
-      showToast('error', 'No members to export.');
-      return;
-    }
-    const exportData = members.map(m => ({
+    const data = members.map(m => ({
       ID: m.id,
       Name: m.fullName,
-      Gender: m.gender,
-      Age: m.age || '',
-      Mobile: m.mobileNumber,
-      Email: m.email,
+      Phone: m.mobileNumber,
       Plan: m.membershipPlan,
-      Goal: m.fitnessGoal,
-      Status: m.status,
-      JoinDate: m.joinDate,
       PT: m.isPT ? 'Yes' : 'No',
-      PT_Schedule: m.ptSchedule || ''
+      Status: m.status.toUpperCase()
     }));
-    exportToCSV(exportData, 'Gym_Members_List.csv');
-    showToast('success', 'Successfully exported all gym members to Excel/CSV!');
+    exportToCSV(data, 'Keerthan_MindFit_Members.csv');
+    showToast('success', 'Members exported to CSV successfully.');
+  };
+
+  // Smart Reschedule Logic from Dashboard
+  const handleOpenReschedule = (log) => {
+    setTargetRescheduleLog(log);
+    setShowSmartReschedule(true);
+  };
+
+  const handleRescheduleSubmit = async (e) => {
+    e.preventDefault();
+    if (!targetRescheduleLog) return;
+    
+    try {
+      const baseDate = targetRescheduleLog.date;
+      let targetDate = customRescheduleDate;
+      
+      if (rescheduleOption === 'tomorrow') {
+        const nextDay = new Date(baseDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        targetDate = nextDay.toISOString().split('T')[0];
+      } else if (rescheduleOption === 'end-of-week') {
+        const base = new Date(baseDate);
+        const day = base.getDay();
+        const diff = (day === 0 ? 0 : 7 - day); // next Sunday
+        base.setDate(base.getDate() + diff);
+        targetDate = base.toISOString().split('T')[0];
+      } else if (rescheduleOption === 'next-workout-day') {
+        const wList = await dbReadAll('workouts') || [];
+        const wPlan = wList.find(w => w.memberId === targetRescheduleLog.memberId);
+        const schedule = wPlan?.schedule || {};
+        
+        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        let found = false;
+        for (let i = 1; i <= 7; i++) {
+          const nextDate = new Date(baseDate);
+          nextDate.setDate(nextDate.getDate() + i);
+          const nextDayName = daysOfWeek[nextDate.getDay()];
+          if (!schedule[nextDayName]?.isRestDay) {
+            targetDate = nextDate.toISOString().split('T')[0];
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          const nextDay = new Date(baseDate);
+          nextDay.setDate(nextDay.getDate() + 1);
+          targetDate = nextDay.toISOString().split('T')[0];
+        }
+      }
+
+      // Update Rescheduled log status
+      await dbUpdate('rescheduledWorkouts', targetRescheduleLog.id, {
+        status: 'rescheduled',
+        rescheduledTo: targetDate,
+        note: `Rescheduled to ${targetDate} using dashboard smart shift.`
+      });
+
+      // Shift the workout schedule for that member
+      const wList = await dbReadAll('workouts') || [];
+      const wPlan = wList.find(w => w.memberId === targetRescheduleLog.memberId);
+      if (wPlan && wPlan.schedule) {
+        const schedule = wPlan.schedule;
+        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const targetDayName = daysOfWeek[new Date(targetDate).getDay()];
+        const missedDayName = daysOfWeek[new Date(baseDate).getDay()];
+        
+        const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        let targetIdx = dayOrder.indexOf(targetDayName);
+        let missedIdx = dayOrder.indexOf(missedDayName);
+
+        if (targetIdx !== -1 && missedIdx !== -1) {
+          const shifted = { ...schedule };
+          const originalValues = dayOrder.map(d => ({ ...schedule[d] }));
+          
+          const missedWorkout = { ...schedule[missedDayName] };
+          shifted[targetDayName] = missedWorkout;
+          
+          for (let i = targetIdx + 1; i < dayOrder.length; i++) {
+            shifted[dayOrder[i]] = originalValues[i - 1];
+          }
+          shifted[missedDayName] = { isRestDay: true, workoutName: 'Rest Day (Missed)', exercises: [] };
+
+          await dbUpdate('workouts', wPlan.id, { schedule: shifted });
+        }
+      }
+
+      showToast('success', `Workout rescheduled to ${targetDate} & schedule shifted!`);
+      setShowSmartReschedule(false);
+      loadDashboardData();
+      window.dispatchEvent(new Event('db-change'));
+    } catch(err) {
+      showToast('error', "Failed to reschedule workout.");
+    }
   };
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <div style={{ height: '80px', width: '100%', background: 'var(--bg-glass-card)', borderRadius: '12px', animation: 'pulse 1.5s infinite' }}></div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-          {[1,2,3,4,5,6].map(i => (
-            <div key={i} style={{ height: '100px', background: 'var(--bg-glass-card)', borderRadius: '12px', animation: 'pulse 1.5s infinite' }}></div>
-          ))}
-        </div>
-      </div>
-    );
+    return <div className="card-glass text-center" style={{ padding: '3rem' }}>Loading Gym Owner Dashboard...</div>;
   }
 
-  // Focus Strategy Message based on today's statistics
-  const getFocusMessage = () => {
-    if (stats.membershipRenewals > 0) {
-      return `Attention required: You have ${stats.membershipRenewals} membership renewals pending this week. Focus on securing their renewals.`;
-    }
-    if (stats.pendingPayments > 0) {
-      return `Dues collection focus: There are ${stats.pendingPayments} pending payments to be recorded in the payments ledger.`;
-    }
-    return `Gym is operating smoothly! ${stats.ptMembers} Personal Training clients are scheduled for coaching workouts today.`;
-  };
-
   return (
-    <div className="dashboard-view-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="dashboard-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
-      {/* TODAY'S FOCUS CONTAINER */}
-      <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', borderLeft: '5px solid var(--color-primary)', background: 'linear-gradient(90deg, rgba(139,92,246,0.1) 0%, rgba(12,10,21,0.6) 100%)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-          <Zap size={18} style={{ color: 'var(--color-primary)' }} className="pulse-icon" />
-          <h2 style={{ fontSize: '1rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-primary)' }}>Today's Focus</h2>
+      {/* Today's Focus Action Alerts banner */}
+      <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '16px', borderLeft: '5px solid var(--color-primary)', background: 'rgba(139, 92, 246, 0.03)' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <Zap size={22} style={{ color: 'var(--color-primary)' }} />
+          <div>
+            <strong style={{ fontSize: '1rem', color: '#fff', fontFamily: 'var(--font-outfit)' }}>Today's Coaching Focus</strong>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
+              {stats.membershipRenewals > 0 
+                ? `You have ${stats.membershipRenewals} active members due for renewal this week. Prioritize renewals.`
+                : 'All memberships are up to date! Continue active training sessions.'
+              }
+              {missedWorkouts.length > 0 && ` • You have ${missedWorkouts.length} missed workouts that require rescheduling.`}
+            </p>
+          </div>
         </div>
-        <p style={{ fontSize: '1.1rem', color: '#fff', fontWeight: 500, lineHeight: '1.4' }}>
-          "{getFocusMessage()}"
-        </p>
       </div>
 
-      {/* 1. Metric Cards Grid - 6 Stats */}
-      <div className="dashboard-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+      {/* 1. Stat cards grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.2rem' }}>
         
-        <div className="metric-card card-glass" style={{ padding: '1.25rem', borderRadius: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Total Members</span>
-            <Users size={16} style={{ color: 'var(--color-primary)' }} />
-          </div>
-          <h3 style={{ fontSize: '1.8rem', fontWeight: 700 }}>{stats.totalMembers}</h3>
+        <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '16px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', right: '12px', top: '12px', opacity: 0.1, color: 'var(--color-primary)' }}><Users size={32} /></div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>ACTIVE MEMBERS</span>
+          <h3 style={{ fontSize: '1.65rem', fontWeight: 800, color: '#fff', marginTop: '6px' }}>{stats.activeMembers} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>/ {stats.totalMembers}</span></h3>
         </div>
 
-        <div className="metric-card card-glass" style={{ padding: '1.25rem', borderRadius: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Active Members</span>
-            <Users size={16} style={{ color: '#10B981' }} />
-          </div>
-          <h3 style={{ fontSize: '1.8rem', fontWeight: 700 }}>{stats.activeMembers}</h3>
+        <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '16px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', right: '12px', top: '12px', opacity: 0.1, color: 'var(--color-primary)' }}><Dumbbell size={32} /></div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>PT ENROLMENTS</span>
+          <h3 style={{ fontSize: '1.65rem', fontWeight: 800, color: '#fff', marginTop: '6px' }}>{stats.ptMembers} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Clients</span></h3>
         </div>
 
-        <div className="metric-card card-glass" style={{ padding: '1.25rem', borderRadius: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>PT Members</span>
-            <Dumbbell size={16} style={{ color: '#F59E0B' }} />
-          </div>
-          <h3 style={{ fontSize: '1.8rem', fontWeight: 700 }}>{stats.ptMembers}</h3>
+        <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '16px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', right: '12px', top: '12px', opacity: 0.1, color: 'var(--color-primary)' }}><CheckSquare size={32} /></div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>TODAY'S VISIT RATE</span>
+          <h3 style={{ fontSize: '1.65rem', fontWeight: 800, color: '#fff', marginTop: '6px' }}>{stats.todayAttendancePct}%</h3>
         </div>
 
-        <div className="metric-card card-glass" style={{ padding: '1.25rem', borderRadius: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Renewals Focus</span>
-            <AlertTriangle size={16} style={{ color: '#EF4444' }} />
-          </div>
-          <h3 style={{ fontSize: '1.8rem', fontWeight: 700 }}>{stats.membershipRenewals}</h3>
-        </div>
-
-        <div className="metric-card card-glass" style={{ padding: '1.25rem', borderRadius: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Pending Payments</span>
-            <Clock size={16} style={{ color: '#8B5CF6' }} />
-          </div>
-          <h3 style={{ fontSize: '1.8rem', fontWeight: 700 }}>{stats.pendingPayments}</h3>
-        </div>
-
-        <div className="metric-card card-glass" style={{ padding: '1.25rem', borderRadius: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Today's Attendance</span>
-            <TrendingUp size={16} style={{ color: '#10B981' }} />
-          </div>
-          <h3 style={{ fontSize: '1.8rem', fontWeight: 700 }}>{stats.todayAttendancePct}%</h3>
+        <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '16px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', right: '12px', top: '12px', opacity: 0.1, color: 'var(--color-primary)' }}><AlertTriangle size={32} /></div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>RENEWALS PENDING</span>
+          <h3 style={{ fontSize: '1.65rem', fontWeight: 800, color: '#fff', marginTop: '6px' }}>{stats.membershipRenewals} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Due</span></h3>
         </div>
 
       </div>
@@ -394,13 +470,13 @@ export default function DashboardView() {
         </div>
       </div>
 
-      {/* 3. Expiring Memberships & Today's PT Schedule */}
+      {/* 3. Schedules & Reschedules sections */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
         
-        {/* Expiring Memberships */}
+        {/* Memberships Expiring Soon */}
         <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <h4 style={{ fontSize: '1rem', fontWeight: 600, fontFamily: 'var(--font-outfit)', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <AlertTriangle size={16} style={{ color: '#F59E0B' }} />
+            <Clock size={16} style={{ color: '#F59E0B' }} />
             <span>Memberships Expiring Soon</span>
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '320px', overflowY: 'auto', flex: 1 }}>
@@ -427,16 +503,16 @@ export default function DashboardView() {
           </div>
         </div>
 
-        {/* Today's PT Schedule */}
+        {/* Today's Workouts & PT Schedule */}
         <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <h4 style={{ fontSize: '1rem', fontWeight: 600, fontFamily: 'var(--font-outfit)', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Calendar size={16} style={{ color: 'var(--color-primary)' }} />
-            <span>Today's PT Schedule</span>
+            <span>Today's Workouts & PT Schedule</span>
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '320px', overflowY: 'auto', flex: 1 }}>
             {todaySchedule.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                No personal training slots scheduled for today.
+                No personal training slots or active workouts scheduled for today.
               </div>
             ) : (
               todaySchedule.map(item => (
@@ -446,11 +522,42 @@ export default function DashboardView() {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#fff' }}>{item.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Focus: {item.goal}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Today's Split: <strong style={{ color: 'var(--color-primary)' }}>{item.todaySplit}</strong></div>
                   </div>
                   <span style={{ fontSize: '0.8rem', background: 'rgba(139, 92, 246, 0.15)', color: 'var(--color-primary)', padding: '0.25rem 0.6rem', borderRadius: '20px', fontWeight: 600 }}>
                     {item.time}
                   </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Missed Workouts Pending */}
+        <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <h4 style={{ fontSize: '1rem', fontWeight: 600, fontFamily: 'var(--font-outfit)', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <ClipboardList size={16} style={{ color: '#EF4444' }} />
+            <span>Missed Workouts Pending</span>
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '320px', overflowY: 'auto', flex: 1 }}>
+            {missedWorkouts.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                No missed workouts currently pending rescheduling.
+              </div>
+            ) : (
+              missedWorkouts.map(log => (
+                <div key={log.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0.8rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', borderRadius: '10px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#EF4444', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                    {log.memberName ? log.memberName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'M'}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#fff' }}>{log.memberName}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Workout: <strong style={{ color: '#EF4444' }}>{log.workoutName}</strong></div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Missed on: {log.date}</div>
+                  </div>
+                  <button className="btn-primary" onClick={() => handleOpenReschedule(log)} style={{ padding: '0.35rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px', background: '#EF4444' }}>
+                    Reschedule
+                  </button>
                 </div>
               ))
             )}
@@ -486,6 +593,66 @@ export default function DashboardView() {
 
         </div>
       </div>
+
+      {/* SMART RESCHEDULE MODAL (MOBILE BOTTOM SHEET DETAILED SLIDER OVERLAY) */}
+      {showSmartReschedule && (
+        <div className="bottom-sheet-overlay">
+          <div className="bottom-sheet-card">
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#fff' }}>Reschedule Missed Workout</h3>
+              <button className="btn-icon" onClick={() => setShowSmartReschedule(false)}><X size={18} /></button>
+            </div>
+
+            <form onSubmit={handleRescheduleSubmit} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              
+              <div>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Rescheduling missed workout for:</span>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-glass)', marginTop: '4px' }}>
+                  <strong style={{ color: '#fff', fontSize: '0.9rem' }}>{targetRescheduleLog?.memberName}</strong>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>Workout: {targetRescheduleLog?.workoutName} | Original date: {targetRescheduleLog?.date}</p>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Choose Rescheduling strategy</label>
+                <select value={rescheduleOption} onChange={(e) => setRescheduleOption(e.target.value)}>
+                  <option value="tomorrow">Move to Tomorrow (Shift Week)</option>
+                  <option value="next-workout-day">Next Available Workout Day (Shift Week)</option>
+                  <option value="end-of-week">Move to End of Week (Sunday/Weekend)</option>
+                  <option value="custom-date">Pick Custom Date...</option>
+                </select>
+              </div>
+
+              {rescheduleOption === 'custom-date' && (
+                <div className="form-group">
+                  <label>Select Target Reschedule Date</label>
+                  <input 
+                    type="date" 
+                    required 
+                    value={customRescheduleDate} 
+                    onChange={(e) => setCustomRescheduleDate(e.target.value)} 
+                  />
+                </div>
+              )}
+
+              <div style={{ background: 'rgba(139,92,246,0.05)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(139,92,246,0.15)' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-primary)', fontWeight: 600 }}>ℹ️ Smart Shift Strategy</span>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: '1.35' }}>
+                  The system will automatically shift subsequent workout splits forward to maintain muscle groups recovery balances and preserve the workout order context.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowSmartReschedule(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{ background: 'var(--color-primary)' }}>Apply Rescheduling</button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

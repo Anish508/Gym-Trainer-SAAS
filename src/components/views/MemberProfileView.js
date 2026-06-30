@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { dbReadOne, dbReadAll, dbCreate, dbUpdate } from '@/lib/db';
+import { dbReadOne, dbReadAll, dbCreate, dbUpdate, dbDelete } from '@/lib/db';
 import { calculateMacros, calculateBMI } from '@/lib/utils';
 import { Line } from 'react-chartjs-2';
 import { useToast } from '@/context/ToastContext';
@@ -22,7 +22,15 @@ import {
   Droplet,
   X,
   PlusCircle,
-  FileText
+  FileText,
+  Lock,
+  Star,
+  Search as SearchIcon,
+  ArrowUpDown,
+  Copy,
+  FolderHeart,
+  ChevronRight,
+  ClipboardList
 } from 'lucide-react';
 
 export default function MemberProfileView({ memberId, onBack }) {
@@ -36,20 +44,49 @@ export default function MemberProfileView({ memberId, onBack }) {
   const [progressLogs, setProgressLogs] = useState([]);
   const [payments, setPayments] = useState([]);
   const [attendance, setAttendance] = useState([]);
+  const [rescheduledLogs, setRescheduledLogs] = useState([]);
   const [gymSettings, setGymSettings] = useState(null);
+  const [workoutTemplates, setWorkoutTemplates] = useState([]);
 
-  // Workout Split State (Monday to Sunday)
-  const defaultExercises = [
-    { id: '1', name: 'Bench Press', sets: 4, reps: 10, weight: 80, notes: 'Flat bench press' }
-  ];
+  // Workout Split State (Monday to Sunday detailed cards with exercises)
+  const [workoutPlanName, setWorkoutPlanName] = useState('Custom Split');
+  const [workoutDifficulty, setWorkoutDifficulty] = useState('Intermediate');
   const [workoutSchedule, setWorkoutSchedule] = useState({
-    Monday: { isRestDay: false, exercises: [...defaultExercises] },
-    Tuesday: { isRestDay: false, exercises: [...defaultExercises] },
-    Wednesday: { isRestDay: false, exercises: [...defaultExercises] },
-    Thursday: { isRestDay: false, exercises: [...defaultExercises] },
-    Friday: { isRestDay: false, exercises: [...defaultExercises] },
-    Saturday: { isRestDay: false, exercises: [...defaultExercises] },
-    Sunday: { isRestDay: true, exercises: [] }
+    Monday: { isRestDay: false, workoutName: 'Chest + Triceps', exercises: [] },
+    Tuesday: { isRestDay: false, workoutName: 'Back + Biceps', exercises: [] },
+    Wednesday: { isRestDay: false, workoutName: 'Legs', exercises: [] },
+    Thursday: { isRestDay: false, workoutName: 'Shoulders', exercises: [] },
+    Friday: { isRestDay: false, workoutName: 'Chest + Arms', exercises: [] },
+    Saturday: { isRestDay: false, workoutName: 'Cardio + Core', exercises: [] },
+    Sunday: { isRestDay: true, workoutName: 'Rest', exercises: [] }
+  });
+
+  const [selectedDay, setSelectedDay] = useState('Monday');
+
+  // Workout Splits Library Modal States
+  const [showSplitsLibrary, setShowSplitsLibrary] = useState(false);
+  const [splitsSearchTerm, setSplitsSearchTerm] = useState('');
+  const [splitsSortBy, setSplitsSortBy] = useState('name');
+  const [favorites, setFavorites] = useState([]);
+
+  // Apply template confirm overlay
+  const [showApplyConfirm, setShowApplyConfirm] = useState(false);
+  const [templateToApply, setTemplateToApply] = useState(null);
+
+  // Smart Reschedule Modal States
+  const [showSmartReschedule, setShowSmartReschedule] = useState(false);
+  const [targetRescheduleLog, setTargetRescheduleLog] = useState(null);
+  const [rescheduleOption, setRescheduleOption] = useState('tomorrow'); // tomorrow, custom-date, end-of-week, next-workout-day
+  const [customRescheduleDate, setCustomRescheduleDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Edit Reschedule Log Modal States
+  const [showEditRescheduleModal, setShowEditRescheduleModal] = useState(false);
+  const [editRescheduleData, setEditRescheduleData] = useState({
+    id: '',
+    status: 'Missed',
+    rescheduledTo: '',
+    workoutName: '',
+    note: ''
   });
 
   // Diet Form State
@@ -122,21 +159,29 @@ export default function MemberProfileView({ memberId, onBack }) {
       // 1. Fetch Workout Plan split
       const wList = await dbReadAll('workouts') || [];
       const wPlan = wList.find(w => w.memberId === memberId);
-      if (wPlan && wPlan.schedule) {
+      if (wPlan) {
         setWorkout(wPlan);
+        setWorkoutPlanName(wPlan.planName || 'Custom Split');
+        setWorkoutDifficulty(wPlan.difficulty || 'Intermediate');
         
         // Parse workout split
         const parsed = {};
         const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
         days.forEach(day => {
-          const dayData = wPlan.schedule[day];
-          if (dayData) {
+          const dayVal = wPlan.schedule?.[day];
+          if (dayVal && typeof dayVal === 'object') {
             parsed[day] = {
-              isRestDay: dayData.isRestDay === undefined ? (dayData === 'Rest' || dayData === 'Rest Day') : dayData.isRestDay,
-              exercises: Array.isArray(dayData.exercises) ? dayData.exercises : []
+              isRestDay: dayVal.isRestDay || false,
+              workoutName: dayVal.workoutName || '',
+              exercises: Array.isArray(dayVal.exercises) ? dayVal.exercises : []
             };
           } else {
-            parsed[day] = { isRestDay: day === 'Sunday', exercises: [] };
+            const isRest = dayVal === 'Rest' || dayVal === 'Rest Day' || day === 'Sunday';
+            parsed[day] = {
+              isRestDay: isRest,
+              workoutName: isRest ? '' : (typeof dayVal === 'string' ? dayVal : ''),
+              exercises: []
+            };
           }
         });
         setWorkoutSchedule(parsed);
@@ -172,7 +217,15 @@ export default function MemberProfileView({ memberId, onBack }) {
       const allAtt = await dbReadAll('attendance') || [];
       setAttendance(allAtt.filter(a => a.memberId === memberId).sort((a,b) => new Date(b.date) - new Date(a.date)));
 
-      // 6. Fetch general settings
+      // 6. Fetch Rescheduled workouts log
+      const resList = await dbReadAll('rescheduledWorkouts') || [];
+      setRescheduledLogs(resList.filter(r => r.memberId === memberId) || []);
+
+      // 7. Fetch Workout Splits Templates
+      const tmplList = await dbReadAll('workoutTemplates') || [];
+      setWorkoutTemplates(tmplList);
+
+      // 8. Fetch general settings
       const settingsObj = await dbReadOne('settings', 'settings');
       setGymSettings(settingsObj || {});
 
@@ -248,66 +301,58 @@ export default function MemberProfileView({ memberId, onBack }) {
     }
   };
 
-  // Workout list modifiers
-  const handleAddExercise = (day) => {
-    const newEx = {
-      id: String(Date.now()),
-      name: '',
-      sets: 4,
-      reps: 10,
-      weight: 60,
-      notes: ''
-    };
-    setWorkoutSchedule(prev => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        exercises: [...prev[day].exercises, newEx]
-      }
-    }));
-  };
-
-  const handleRemoveExercise = (day, exId) => {
-    setWorkoutSchedule(prev => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        exercises: prev[day].exercises.filter(ex => ex.id !== exId)
-      }
-    }));
-  };
-
-  const handleExerciseChange = (day, exId, field, value) => {
-    setWorkoutSchedule(prev => ({
-      ...prev,
-      [day]: {
-        ...prev[day],
-        exercises: prev[day].exercises.map(ex => {
-          if (ex.id === exId) {
-            return { ...ex, [field]: value };
-          }
-          return ex;
-        })
-      }
-    }));
-  };
-
+  // Workout Schedule Save
   const handleSaveWorkout = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     try {
       if (workout) {
-        await dbUpdate('workouts', workout.id, { schedule: workoutSchedule });
+        await dbUpdate('workouts', workout.id, { 
+          planName: workoutPlanName,
+          difficulty: workoutDifficulty,
+          schedule: workoutSchedule 
+        });
       } else {
         await dbCreate('workouts', {
           id: `W-${memberId}`,
           memberId,
+          planName: workoutPlanName,
+          difficulty: workoutDifficulty,
           schedule: workoutSchedule
         });
       }
-      showToast('success', "Workout weekly split split saved successfully!");
+      showToast('success', "Workout weekly split saved successfully!");
       loadProfileData();
+      window.dispatchEvent(new Event('db-change'));
     } catch(err) {
       showToast('error', "Failed to save weekly split.");
+    }
+  };
+
+  // Delete/Clear Workout split
+  const handleDeleteWorkoutPlan = async () => {
+    if (window.confirm("Are you sure you want to delete and clear this client's workout plan?")) {
+      try {
+        const cleared = {};
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].forEach(day => {
+          cleared[day] = { isRestDay: day === 'Sunday', workoutName: '', exercises: [] };
+        });
+        setWorkoutSchedule(cleared);
+        setWorkoutPlanName('Custom Split');
+        setWorkoutDifficulty('Intermediate');
+        
+        if (workout) {
+          await dbUpdate('workouts', workout.id, {
+            planName: 'Custom Split',
+            difficulty: 'Intermediate',
+            schedule: cleared
+          });
+        }
+        showToast('success', "Workout plan cleared successfully!");
+        loadProfileData();
+        window.dispatchEvent(new Event('db-change'));
+      } catch(e) {
+        showToast('error', "Failed to clear workout plan.");
+      }
     }
   };
 
@@ -401,16 +446,317 @@ export default function MemberProfileView({ memberId, onBack }) {
     }
   };
 
-  if (!member) {
-    return <div className="card-glass text-center" style={{ padding: '3rem' }}>Loading Member Profile Details...</div>;
-  }
+  // Workout Library Templates Management
+  const handleCreateTemplate = async () => {
+    const name = window.prompt("Enter a name for your custom split template:", "Custom Split");
+    if (!name) return;
+    const goal = window.prompt("Enter target fitness goal:", "Force and Hypertrophy development");
+    const muscles = window.prompt("Enter targeted muscle groups:", "Chest, Back, Legs");
+    const difficulty = window.prompt("Enter difficulty (Beginner, Intermediate, Advanced):", "Intermediate");
 
-  // Attendance metrics calculations
-  const totalAtt = attendance.length;
-  const presentDays = attendance.filter(a => a.status === 'present').length;
-  const lateEntries = attendance.filter(a => a.status === 'late').length;
-  const absentDays = attendance.filter(a => a.status === 'absent').length;
-  const attendancePct = totalAtt > 0 ? Math.round(((presentDays + lateEntries) / totalAtt) * 100) : 0;
+    const templateObj = {
+      id: `tmpl-${Date.now()}`,
+      name,
+      difficulty: difficulty || 'Intermediate',
+      goal: goal || 'Custom split target',
+      muscles: muscles || 'Custom groups',
+      schedule: { ...workoutSchedule }
+    };
+
+    try {
+      await dbCreate('workoutTemplates', templateObj);
+      showToast('success', `Custom template "${name}" created!`);
+      loadProfileData();
+    } catch(e) {
+      showToast('error', "Failed to save template.");
+    }
+  };
+
+  const handleDuplicateTemplate = async (t) => {
+    const templateObj = {
+      ...t,
+      id: `tmpl-dup-${Date.now()}`,
+      name: `${t.name} (Copy)`
+    };
+
+    try {
+      await dbCreate('workoutTemplates', templateObj);
+      showToast('success', `Duplicated template into "${templateObj.name}"!`);
+      loadProfileData();
+    } catch(e) {
+      showToast('error', "Failed to duplicate template.");
+    }
+  };
+
+  const toggleFavorite = async (id) => {
+    const target = workoutTemplates.find(t => t.id === id);
+    if (!target) return;
+    try {
+      await dbUpdate('workoutTemplates', id, { isFavorite: !target.isFavorite });
+      loadProfileData();
+    } catch(e) {}
+  };
+
+  const handleApplyTemplateClick = (t) => {
+    setTemplateToApply(t);
+    setShowApplyConfirm(true);
+  };
+
+  const executeApplyTemplate = (replace) => {
+    if (!templateToApply) return;
+    
+    if (replace) {
+      // Overwrite split
+      setWorkoutSchedule(templateToApply.schedule);
+      setWorkoutPlanName(templateToApply.name);
+      setWorkoutDifficulty(templateToApply.difficulty);
+      showToast('success', `Replaced workout split with "${templateToApply.name}"!`);
+    } else {
+      // Merge split
+      const merged = {};
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      days.forEach(day => {
+        const currentDay = workoutSchedule[day] || { isRestDay: true, workoutName: '', exercises: [] };
+        const templateDay = templateToApply.schedule[day] || { isRestDay: true, workoutName: '', exercises: [] };
+
+        if (templateDay.isRestDay) {
+          merged[day] = { ...currentDay };
+        } else {
+          merged[day] = {
+            isRestDay: false,
+            workoutName: currentDay.workoutName && currentDay.workoutName !== 'Rest' ? `${currentDay.workoutName} + ${templateDay.workoutName}` : templateDay.workoutName,
+            exercises: [...(currentDay.exercises || []), ...(templateDay.exercises || [])]
+          };
+        }
+      });
+      setWorkoutSchedule(merged);
+      showToast('success', `Merged "${templateToApply.name}" templates with current schedule!`);
+    }
+    setShowApplyConfirm(false);
+    setShowSplitsLibrary(false);
+  };
+
+  // Copy Previous Day split helper
+  const handleDuplicatePreviousDay = (day, prevDay) => {
+    const prevData = workoutSchedule[prevDay] || { isRestDay: true, workoutName: '', exercises: [] };
+    setWorkoutSchedule(prev => ({
+      ...prev,
+      [day]: {
+        isRestDay: prevData.isRestDay,
+        workoutName: prevData.workoutName,
+        exercises: prevData.exercises ? [...prevData.exercises] : []
+      }
+    }));
+    showToast('success', `Copied ${prevDay}'s workout split to ${day}!`);
+  };
+
+  // Exercises list management
+  const handleAddExercise = (day) => {
+    const updated = { ...workoutSchedule };
+    const currentExercises = updated[day]?.exercises || [];
+    updated[day] = {
+      ...updated[day],
+      exercises: [
+        ...currentExercises,
+        { id: `ex-${Date.now()}-${Math.random()}`, name: '', sets: 3, reps: '10', weight: 10, restTime: '60s', notes: '' }
+      ]
+    };
+    setWorkoutSchedule(updated);
+  };
+
+  const handleRemoveExercise = (day, exerciseId) => {
+    const updated = { ...workoutSchedule };
+    const currentExercises = updated[day]?.exercises || [];
+    updated[day] = {
+      ...updated[day],
+      exercises: currentExercises.filter(ex => ex.id !== exerciseId)
+    };
+    setWorkoutSchedule(updated);
+  };
+
+  const handleExerciseChange = (day, exerciseId, field, val) => {
+    const updated = { ...workoutSchedule };
+    const currentExercises = updated[day]?.exercises || [];
+    updated[day] = {
+      ...updated[day],
+      exercises: currentExercises.map(ex => {
+        if (ex.id === exerciseId) {
+          return { ...ex, [field]: val };
+        }
+        return ex;
+      })
+    };
+    setWorkoutSchedule(updated);
+  };
+
+  // Smart Rescheduling Calculation
+  const handleOpenReschedule = (log) => {
+    setTargetRescheduleLog(log);
+    setShowSmartReschedule(true);
+  };
+
+  const handleRescheduleSubmit = async (e) => {
+    e.preventDefault();
+    if (!targetRescheduleLog) return;
+    
+    try {
+      // Calculate target date
+      const baseDate = targetRescheduleLog.date;
+      let targetDate = customRescheduleDate;
+      
+      if (rescheduleOption === 'tomorrow') {
+        const nextDay = new Date(baseDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        targetDate = nextDay.toISOString().split('T')[0];
+      } else if (rescheduleOption === 'end-of-week') {
+        const base = new Date(baseDate);
+        const day = base.getDay();
+        const diff = (day === 0 ? 0 : 7 - day); // next Sunday
+        base.setDate(base.getDate() + diff);
+        targetDate = base.toISOString().split('T')[0];
+      } else if (rescheduleOption === 'next-workout-day') {
+        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        let found = false;
+        for (let i = 1; i <= 7; i++) {
+          const nextDate = new Date(baseDate);
+          nextDate.setDate(nextDate.getDate() + i);
+          const nextDayName = daysOfWeek[nextDate.getDay()];
+          if (!workoutSchedule[nextDayName]?.isRestDay) {
+            targetDate = nextDate.toISOString().split('T')[0];
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          const nextDay = new Date(baseDate);
+          nextDay.setDate(nextDay.getDate() + 1);
+          targetDate = nextDay.toISOString().split('T')[0];
+        }
+      }
+
+      // Update Rescheduled log status
+      await dbUpdate('rescheduledWorkouts', targetRescheduleLog.id, {
+        status: 'rescheduled',
+        rescheduledTo: targetDate,
+        note: `Rescheduled to ${targetDate} using smart shift strategy.`
+      });
+
+      // Calculate daysOfWeek names
+      const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const targetDayName = daysOfWeek[new Date(targetDate).getDay()];
+      const missedDayName = daysOfWeek[new Date(baseDate).getDay()];
+
+      // Trigger Smart Shifting of splits
+      const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      let targetIdx = dayOrder.indexOf(targetDayName);
+      let missedIdx = dayOrder.indexOf(missedDayName);
+
+      if (targetIdx !== -1 && missedIdx !== -1) {
+        const shifted = { ...workoutSchedule };
+        const originalValues = dayOrder.map(d => ({ ...workoutSchedule[d] }));
+        
+        // Push the missed workout to the target day
+        const missedWorkout = { ...workoutSchedule[missedDayName] };
+        shifted[targetDayName] = missedWorkout;
+        
+        // Shift future workouts forward from target day name onwards
+        for (let i = targetIdx + 1; i < dayOrder.length; i++) {
+          shifted[dayOrder[i]] = originalValues[i - 1];
+        }
+        // Set the missed day itself as a Rest Day
+        shifted[missedDayName] = { isRestDay: true, workoutName: 'Rest Day (Missed)', exercises: [] };
+
+        // Save workout updates
+        setWorkoutSchedule(shifted);
+        if (workout) {
+          await dbUpdate('workouts', workout.id, { schedule: shifted });
+        }
+      }
+
+      showToast('success', `Workout rescheduled to ${targetDate} & schedule shifted!`);
+      setShowSmartReschedule(false);
+      loadProfileData();
+      window.dispatchEvent(new Event('db-change'));
+    } catch(err) {
+      showToast('error', "Failed to reschedule workout.");
+    }
+  };
+
+  const handleSkipWorkout = async (log) => {
+    if (window.confirm("Are you sure you want to skip this missed workout?")) {
+      try {
+        await dbUpdate('rescheduledWorkouts', log.id, { status: 'skipped', note: 'Skipped by trainer.' });
+        showToast('info', 'Missed workout skipped.');
+        loadProfileData();
+        window.dispatchEvent(new Event('db-change'));
+      } catch(e) {}
+    }
+  };
+
+  const handleCompleteLater = async (log) => {
+    try {
+      await dbUpdate('rescheduledWorkouts', log.id, { status: 'delayed', note: 'Marked to complete later.' });
+      showToast('info', 'Workout marked as delayed.');
+      loadProfileData();
+      window.dispatchEvent(new Event('db-change'));
+    } catch(e) {}
+  };
+
+  const handleSaveEditReschedule = async (e) => {
+    e.preventDefault();
+    if (!editRescheduleData) return;
+    try {
+      await dbUpdate('rescheduledWorkouts', editRescheduleData.id, {
+        status: editRescheduleData.status,
+        rescheduledTo: editRescheduleData.rescheduledTo,
+        workoutName: editRescheduleData.workoutName,
+        note: editRescheduleData.note
+      });
+      showToast('success', "Rescheduled log entry updated!");
+      setShowEditRescheduleModal(false);
+      loadProfileData();
+      window.dispatchEvent(new Event('db-change'));
+    } catch(err) {
+      showToast('error', "Failed to update log entry.");
+    }
+  };
+
+  const handleDeleteRescheduleLog = async (logId) => {
+    if (window.confirm("Are you sure you want to delete this log entry permanently?")) {
+      try {
+        await dbDelete('rescheduledWorkouts', logId);
+        showToast('success', "Log entry deleted successfully.");
+        loadProfileData();
+        window.dispatchEvent(new Event('db-change'));
+      } catch(e) {
+        showToast('error', "Failed to delete log entry.");
+      }
+    }
+  };
+
+  // Get status badge css
+  const getStatusBadgeClass = (status) => {
+    const s = status.toLowerCase();
+    if (s === 'completed') return 'badge-completed';
+    if (s === 'missed') return 'badge-missed';
+    if (s === 'rescheduled') return 'badge-rescheduled';
+    if (s === 'skipped') return 'badge-skipped';
+    if (s === 'delayed') return 'badge-delayed';
+    return 'badge-upcoming';
+  };
+
+  // Filter templates list
+  const missedWorkouts = rescheduledLogs.filter(log => log.status?.toLowerCase() === 'missed');
+
+  const filteredTemplates = workoutTemplates.filter(t => 
+    (t.name || '').toLowerCase().includes(splitsSearchTerm.toLowerCase()) ||
+    (t.goal || '').toLowerCase().includes(splitsSearchTerm.toLowerCase())
+  ).sort((a, b) => {
+    if (splitsSortBy === 'name') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    return 0;
+  });
 
   // Render Tabs Content
   const renderProfileTab = () => (
@@ -490,27 +836,145 @@ export default function MemberProfileView({ memberId, onBack }) {
     </div>
   );
 
-  const renderWorkoutTab = () => (
-    <div className="card-glass profile-tab-card" style={{ padding: '1.5rem', borderRadius: '16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
-        <div>
-          <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.15rem' }}>Workout Split Reference</h3>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Manage exercises, sets, reps, and target loads.</span>
-        </div>
-      </div>
+  const renderWorkoutTab = () => {
+    const split = workoutSchedule[selectedDay] || { isRestDay: true, workoutName: 'Rest', exercises: [] };
+    const daysArr = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const prevDayName = daysArr[(daysArr.indexOf(selectedDay) + 6) % 7];
 
-      <form onSubmit={handleSaveWorkout} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         
-        {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
-          const split = workoutSchedule[day] || { isRestDay: false, exercises: [] };
+        {/* Sticky Alert panel for missed workouts */}
+        {missedWorkouts.length > 0 && (
+          <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '14px', borderLeft: '5px solid #EF4444', background: 'rgba(239,68,68,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <ClipboardList size={22} style={{ color: '#EF4444' }} />
+              <div>
+                <strong style={{ color: '#fff', fontSize: '0.95rem' }}>Missed Workout Detected</strong>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  {missedWorkouts[0].workoutName} on {missedWorkouts[0].date} was missed (Absent).
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn-primary" onClick={() => handleOpenReschedule(missedWorkouts[0])} style={{ background: '#EF4444', height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                Reschedule
+              </button>
+              <button className="btn-secondary" onClick={() => handleSkipWorkout(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                Skip
+              </button>
+              <button className="btn-secondary" onClick={() => handleCompleteLater(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                Complete Later
+              </button>
+            </div>
+          </div>
+        )}
 
-          return (
-            <div key={day} className="card-glass" style={{ padding: '1rem', borderRadius: '12px', borderLeft: split.isRestDay ? '4px solid var(--text-muted)' : '4px solid var(--color-primary)' }}>
+        {/* Client Workout Planner Main Editor Layout */}
+        <div className="card-glass profile-tab-card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          
+          {/* Header toolbar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '1rem' }}>
+            <div>
+              <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.2rem', fontWeight: 600 }}>Client Workout Planner</h3>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Customize individual days or apply split templates.</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button type="button" className="btn-secondary" onClick={() => {
+                localStorage.setItem('kmf_copied_workout', JSON.stringify(workoutSchedule));
+                showToast('success', 'Workout week split copied!');
+              }} style={{ height: '38px', padding: '0 0.85rem', fontSize: '0.8rem' }}>
+                Copy Week
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => {
+                const copied = localStorage.getItem('kmf_copied_workout');
+                if (copied) {
+                  try {
+                    setWorkoutSchedule(JSON.parse(copied));
+                    showToast('success', 'Workout week split pasted!');
+                  } catch(e){}
+                } else {
+                  showToast('error', 'No copied week schedule found.');
+                }
+              }} style={{ height: '38px', padding: '0 0.85rem', fontSize: '0.8rem' }}>
+                Paste Week
+              </button>
+              <button type="button" className="btn-primary" onClick={() => setShowSplitsLibrary(true)} style={{ height: '38px', padding: '0 1rem', fontSize: '0.8rem', display: 'flex', gap: '6px', alignItems: 'center', background: 'var(--color-primary)' }}>
+                <Dumbbell size={14} />
+                <span>Apply Split template...</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Plan Settings */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '1.25rem' }}>
+            <div className="form-grid mobile-column-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label>Plan Name</label>
+                <input 
+                  type="text" 
+                  value={workoutPlanName} 
+                  onChange={(e) => setWorkoutPlanName(e.target.value)} 
+                  placeholder="e.g. Muscle Gain Split" 
+                />
+              </div>
+              <div className="form-group">
+                <label>Difficulty</label>
+                <select value={workoutDifficulty} onChange={(e) => setWorkoutDifficulty(e.target.value)}>
+                  <option value="Beginner">Beginner</option>
+                  <option value="Intermediate">Intermediate</option>
+                  <option value="Advanced">Advanced</option>
+                </select>
+              </div>
+            </div>
+            
+            <button 
+              type="button" 
+              onClick={handleDeleteWorkoutPlan} 
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#EF4444', background: 'none', border: 'none', fontSize: '0.85rem', cursor: 'pointer', padding: 0, fontWeight: 600, alignSelf: 'flex-start' }}
+            >
+              <Trash2 size={16} />
+              <span>Delete Plan</span>
+            </button>
+          </div>
+
+          {/* Swipeable / Scrollable Weekly Days Tabs */}
+          <div className="weekly-day-scroller">
+            {daysArr.map(d => {
+              const isActive = d === selectedDay;
+              const dSplit = workoutSchedule[d] || { isRestDay: true };
               
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <h4 style={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}>{day}</h4>
-                
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+              return (
+                <div 
+                  key={d} 
+                  className={`weekly-day-tab ${isActive ? 'active' : ''}`}
+                  onClick={() => setSelectedDay(d)}
+                >
+                  <div style={{ fontSize: '0.75rem', color: isActive ? 'var(--color-primary)' : 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>{d.slice(0,3)}</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {dSplit.isRestDay ? 'Rest' : (dSplit.workoutName || 'Active')}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Active Split Day Card Editor */}
+          <div className="daily-split-card" style={{ borderLeft: '4px solid var(--color-primary)', background: 'rgba(255,255,255,0.01)', padding: '1.25rem', borderRadius: '12px' }}>
+            
+            <div className="daily-split-header">
+              <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>{selectedDay} Split Target</h4>
+              
+              <div className="daily-split-actions">
+                <button 
+                  type="button" 
+                  className="daily-split-dup-btn" 
+                  onClick={() => handleDuplicatePreviousDay(selectedDay, prevDayName)}
+                >
+                  <span>Duplicate {prevDayName}</span>
+                </button>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                   <input 
                     type="checkbox" 
                     checked={split.isRestDay} 
@@ -518,7 +982,7 @@ export default function MemberProfileView({ memberId, onBack }) {
                       const val = e.target.checked;
                       setWorkoutSchedule(prev => ({
                         ...prev,
-                        [day]: { ...prev[day], isRestDay: val }
+                        [selectedDay]: { ...prev[selectedDay], isRestDay: val }
                       }));
                     }}
                     style={{ width: '16px', height: '16px' }}
@@ -526,75 +990,183 @@ export default function MemberProfileView({ memberId, onBack }) {
                   <span>Rest Day</span>
                 </label>
               </div>
+            </div>
 
-              {!split.isRestDay ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Split inputs and exercise editor row lists */}
+            {!split.isRestDay ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginTop: '0.75rem' }}>
+                
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Workout Name / Focus Summary</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Chest + Triceps Heavy" 
+                    value={split.workoutName} 
+                    onChange={(e) => setWorkoutSchedule(prev => ({
+                      ...prev,
+                      [selectedDay]: { ...prev[selectedDay], workoutName: e.target.value }
+                    }))}
+                    style={{ width: '100%', height: '40px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}
+                  />
+                </div>
+
+                {/* Exercises array builder */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Exercises List</span>
                   
-                  {/* Exercises List table/inputs */}
-                  {split.exercises.map((ex, idx) => (
-                    <div key={ex.id || idx} className="exercise-row-grid">
-                      <input 
-                        type="text" 
-                        placeholder="Exercise Name" 
-                        value={ex.name} 
-                        onChange={(e) => handleExerciseChange(day, ex.id, 'name', e.target.value)} 
-                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
-                      />
-                      <input 
-                        type="number" 
-                        placeholder="Sets" 
-                        value={ex.sets} 
-                        onChange={(e) => handleExerciseChange(day, ex.id, 'sets', Number(e.target.value))} 
-                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
-                      />
-                      <input 
-                        type="text" 
-                        placeholder="Reps" 
-                        value={ex.reps} 
-                        onChange={(e) => handleExerciseChange(day, ex.id, 'reps', e.target.value)} 
-                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
-                      />
-                      <input 
-                        type="number" 
-                        placeholder="Weight (kg)" 
-                        value={ex.weight} 
-                        onChange={(e) => handleExerciseChange(day, ex.id, 'weight', Number(e.target.value))} 
-                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
-                      />
-                      <input 
-                        type="text" 
-                        placeholder="Coaching notes (e.g. Flat Bench)" 
-                        value={ex.notes} 
-                        onChange={(e) => handleExerciseChange(day, ex.id, 'notes', e.target.value)} 
-                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
-                      />
-                      <button type="button" className="btn-icon" onClick={() => handleRemoveExercise(day, ex.id)} style={{ color: '#EF4444' }}>
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {split.exercises?.map((ex) => (
+                      <div key={ex.id} className="exercise-edit-row">
+                        <input 
+                          type="text" 
+                          placeholder="Exercise Name" 
+                          value={ex.name} 
+                          onChange={(e) => handleExerciseChange(selectedDay, ex.id, 'name', e.target.value)} 
+                          style={{ height: '36px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                        />
+                        <input 
+                          type="number" 
+                          placeholder="Sets" 
+                          value={ex.sets} 
+                          onChange={(e) => handleExerciseChange(selectedDay, ex.id, 'sets', Number(e.target.value))} 
+                          style={{ height: '36px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="Reps" 
+                          value={ex.reps} 
+                          onChange={(e) => handleExerciseChange(selectedDay, ex.id, 'reps', e.target.value)} 
+                          style={{ height: '36px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                        />
+                        <input 
+                          type="number" 
+                          placeholder="Wt (kg)" 
+                          value={ex.weight} 
+                          onChange={(e) => handleExerciseChange(selectedDay, ex.id, 'weight', Number(e.target.value))} 
+                          style={{ height: '36px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="Rest" 
+                          value={ex.restTime} 
+                          onChange={(e) => handleExerciseChange(selectedDay, ex.id, 'restTime', e.target.value)} 
+                          style={{ height: '36px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="Coaching notes..." 
+                          value={ex.notes} 
+                          onChange={(e) => handleExerciseChange(selectedDay, ex.id, 'notes', e.target.value)} 
+                          style={{ height: '36px', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                        />
+                        <button type="button" className="btn-icon" onClick={() => handleRemoveExercise(selectedDay, ex.id)} style={{ color: '#EF4444', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.1)', padding: '0.35rem' }}>
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
 
-                  <button type="button" className="btn-secondary" onClick={() => handleAddExercise(day)} style={{ alignSelf: 'flex-start', padding: '0.35rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' }}>
+                  <button type="button" className="btn-secondary" onClick={() => handleAddExercise(selectedDay)} style={{ alignSelf: 'flex-start', padding: '0.4rem 0.8rem', fontSize: '0.8rem', display: 'flex', gap: '4px', alignItems: 'center', marginTop: '6px' }}>
                     <Plus size={14} />
-                    <span>Add Exercise</span>
+                    <span>Add Exercise Row</span>
                   </button>
 
                 </div>
-              ) : (
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '0.5rem 0' }}>💤 Rest day split. No exercises assigned.</div>
-              )}
 
-            </div>
-          );
-        })}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '1rem 0', textAlign: 'center' }}>
+                💤 Rest day split. No target exercises scheduled.
+              </div>
+            )}
 
-        <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-end', padding: '0.6rem 2rem' }}>
-          Save Weekly Split
-        </button>
+          </div>
 
-      </form>
-    </div>
-  );
+          <button onClick={() => handleSaveWorkout()} className="btn-primary" style={{ alignSelf: 'flex-end', padding: '0.6rem 2.5rem' }}>
+            Save Workout Schedule
+          </button>
+
+        </div>
+
+        {/* Rescheduling & Missed Workouts Log Table */}
+        <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+          <h4 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.05rem', fontWeight: 600 }}>Workout Rescheduling & Missed History</h4>
+          
+          <div className="table-responsive">
+            <table className="table-custom" style={{ width: '100%' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.01)' }}>
+                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>ORIGINAL DATE</th>
+                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>WORKOUT</th>
+                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>STATUS</th>
+                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>RESCHEDULED TO</th>
+                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>COACHING NOTES</th>
+                  <th style={{ padding: '0.8rem', fontSize: '0.75rem', textAlign: 'right' }}>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rescheduledLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No rescheduled workouts on record.</td>
+                  </tr>
+                ) : (
+                  [...rescheduledLogs].sort((a,b) => new Date(b.date) - new Date(a.date)).map(log => (
+                    <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={{ padding: '0.8rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>{log.date}</td>
+                      <td style={{ padding: '0.8rem', fontWeight: 600, color: '#fff', fontSize: '0.85rem' }}>{log.workoutName}</td>
+                      <td style={{ padding: '0.8rem' }}>
+                        <span className={`badge ${getStatusBadgeClass(log.status)}`} style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                          {log.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.8rem' }}>
+                        {log.rescheduledTo ? (
+                          <span className="badge badge-success" style={{ fontSize: '0.8rem', fontFamily: 'monospace', background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '0.2rem 0.5rem' }}>
+                            {log.rescheduledTo}
+                          </span>
+                        ) : '--'}
+                      </td>
+                      <td style={{ padding: '0.8rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{log.note || '--'}</td>
+                      <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: '8px' }}>
+                          <button 
+                            type="button" 
+                            className="btn-secondary" 
+                            onClick={() => {
+                              setEditRescheduleData({
+                                id: log.id,
+                                status: log.status,
+                                rescheduledTo: log.rescheduledTo || '',
+                                workoutName: log.workoutName,
+                                note: log.note || ''
+                              });
+                              setShowEditRescheduleModal(true);
+                            }}
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', minHeight: '26px' }}
+                          >
+                            Edit
+                          </button>
+                          <button 
+                            type="button" 
+                            className="btn-secondary" 
+                            onClick={() => handleDeleteRescheduleLog(log.id)}
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', minHeight: '26px', color: '#EF4444', borderColor: 'rgba(239,68,68,0.2)' }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    );
+  };
 
   const renderDietTab = () => (
     <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
@@ -1143,6 +1715,14 @@ export default function MemberProfileView({ memberId, onBack }) {
     );
   };
 
+  if (!member) {
+    return (
+      <div className="card-glass text-center" style={{ padding: '4rem 2rem' }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Loading member profile details...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="member-profile-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
@@ -1338,6 +1918,274 @@ export default function MemberProfileView({ memberId, onBack }) {
                 <button type="submit" className="btn-primary">Save Config</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* WORKOUT SPLITS LIBRARY MODAL OVERLAY (MOBILE-FIRST BOTTOM SHEET) */}
+      {showSplitsLibrary && (
+        <div className="bottom-sheet-overlay">
+          <div className="bottom-sheet-card">
+            
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Dumbbell size={20} style={{ color: 'var(--color-primary)' }} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#fff', fontFamily: 'var(--font-outfit)', margin: 0 }}>Workout Templates Library</h3>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button type="button" className="btn-primary" onClick={handleCreateTemplate} style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', minHeight: '32px' }}>
+                  + Create Template
+                </button>
+                <button className="btn-icon" onClick={() => setShowSplitsLibrary(false)} style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Search & Sort Panel */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '8px', padding: '0.4rem 0.8rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-glass)', borderRadius: '8px', alignItems: 'center', flex: 1 }}>
+                <SearchIcon size={15} style={{ color: 'var(--text-muted)' }} />
+                <input 
+                  type="text" 
+                  placeholder="Search templates by name or goal..." 
+                  value={splitsSearchTerm}
+                  onChange={(e) => setSplitsSearchTerm(e.target.value)}
+                  style={{ background: 'none', border: 'none', color: '#fff', outline: 'none', width: '100%', fontSize: '0.85rem' }}
+                />
+              </div>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => setSplitsSortBy(splitsSortBy === 'name' ? 'default' : 'name')}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', height: '36px', padding: '0 0.85rem', background: 'rgba(255,255,255,0.03)' }}
+              >
+                <ArrowUpDown size={14} />
+                <span>{splitsSortBy === 'name' ? 'Sorted by Name' : 'Sort by Name'}</span>
+              </button>
+            </div>
+
+            {/* Templates Cards List */}
+            <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.8rem', paddingRight: '4px' }}>
+              {filteredTemplates.length === 0 ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No split templates matched your search.</div>
+              ) : (
+                filteredTemplates.map(t => {
+                  const isFav = favorites.includes(t.id);
+
+                  return (
+                    <div 
+                      key={t.id} 
+                      className="card-glass" 
+                      style={{ padding: '1rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', border: '1px solid rgba(255,255,255,0.04)', background: 'rgba(255,255,255,0.01)' }}
+                      className="mobile-column-grid"
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fff', margin: 0 }}>{t.name}</h4>
+                          <span 
+                            className="badge" 
+                            style={{ 
+                              fontSize: '0.7rem', 
+                              padding: '0.1rem 0.4rem', 
+                              borderRadius: '4px',
+                              background: t.difficulty === 'Beginner' ? 'rgba(16,185,129,0.1)' : t.difficulty === 'Advanced' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+                              color: t.difficulty === 'Beginner' ? '#10B981' : t.difficulty === 'Advanced' ? '#EF4444' : '#F59E0B'
+                            }}
+                          >
+                            {t.difficulty}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '4px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <strong>Goal:</strong> {t.goal}
+                        </p>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '2px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <strong>Description:</strong> {t.description || 'Workout split routine'}
+                        </p>
+                      </div>
+
+                      {/* Action buttons on the right */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button 
+                          type="button" 
+                          onClick={() => toggleFavorite(t.id)} 
+                          style={{ background: 'none', border: 'none', color: isFav ? '#F59E0B' : 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                        >
+                          <Star size={16} fill={isFav ? '#F59E0B' : 'none'} />
+                        </button>
+                        
+                        <button 
+                          type="button" 
+                          className="btn-secondary" 
+                          onClick={() => handleDuplicateTemplate(t)}
+                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', minHeight: '32px', height: '32px' }}
+                        >
+                          Duplicate
+                        </button>
+                        
+                        <button 
+                          type="button" 
+                          className="btn-primary" 
+                          onClick={() => handleApplyTemplateClick(t)}
+                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', minHeight: '32px', height: '32px', background: 'var(--color-primary)' }}
+                        >
+                          Apply to Client
+                        </button>
+                      </div>
+
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* REPLACE OR MERGE CONFIRM DIALOG */}
+      {showApplyConfirm && (
+        <div className="modal-overlay" style={{ display: 'flex', zIndex: 4000 }}>
+          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '420px', width: '90%', padding: '1.5rem', borderRadius: '16px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Apply Template Plan</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+              Choose how you want to apply the template plan **"{templateToApply?.name}"** to this member's workout split schedule.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button className="btn-primary" onClick={() => executeApplyTemplate(true)} style={{ width: '100%' }}>
+                Replace Existing Plan (Overwrite)
+              </button>
+              <button className="btn-secondary" onClick={() => executeApplyTemplate(false)} style={{ width: '100%' }}>
+                Merge With Existing Plan (Append Exercises)
+              </button>
+              <button className="btn-secondary" onClick={() => setShowApplyConfirm(false)} style={{ width: '100%', borderColor: 'transparent', color: 'var(--text-muted)' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SMART RESCHEDULE SLIDING OVERLAY (MOBILE BOTTOM SHEET) */}
+      {showSmartReschedule && (
+        <div className="bottom-sheet-overlay">
+          <div className="bottom-sheet-card">
+            
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#fff' }}>Smart Workout Rescheduling</h3>
+              <button className="btn-icon" onClick={() => setShowSmartReschedule(false)}><X size={18} /></button>
+            </div>
+
+            <form onSubmit={handleRescheduleSubmit} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              
+              <div>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Rescheduling missed session:</span>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-glass)', marginTop: '4px' }}>
+                  <strong style={{ color: '#fff', fontSize: '0.9rem' }}>{targetRescheduleLog?.workoutName}</strong>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>Originally planned date: {targetRescheduleLog?.date}</p>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Choose Rescheduling strategy</label>
+                <select value={rescheduleOption} onChange={(e) => setRescheduleOption(e.target.value)}>
+                  <option value="tomorrow">Move to Tomorrow (Shift Week)</option>
+                  <option value="next-workout-day">Next Available Workout Day (Shift Week)</option>
+                  <option value="end-of-week">Move to End of Week (Sunday/Weekend)</option>
+                  <option value="custom-date">Pick Custom Date...</option>
+                </select>
+              </div>
+
+              {rescheduleOption === 'custom-date' && (
+                <div className="form-group">
+                  <label>Select Target Reschedule Date</label>
+                  <input 
+                    type="date" 
+                    required 
+                    value={customRescheduleDate} 
+                    onChange={(e) => setCustomRescheduleDate(e.target.value)} 
+                  />
+                </div>
+              )}
+
+              <div style={{ background: 'rgba(139,92,246,0.05)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(139,92,246,0.15)' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-primary)', fontWeight: 600 }}>ℹ️ Smart Shift Strategy</span>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: '1.35' }}>
+                  The system will automatically shift subsequent workout splits forward to maintain muscle groups recovery balances and preserve the workout order context.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowSmartReschedule(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{ background: 'var(--color-primary)' }}>Apply Rescheduling</button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+      )}
+      {/* EDIT RESCHEDULE LOG ENTRY OVERLAY (MOBILE BOTTOM SHEET) */}
+      {showEditRescheduleModal && (
+        <div className="bottom-sheet-overlay">
+          <div className="bottom-sheet-card">
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#fff' }}>Edit Rescheduled Workout Log</h3>
+              <button className="btn-icon" onClick={() => setShowEditRescheduleModal(false)}><X size={18} /></button>
+            </div>
+
+            <form onSubmit={handleSaveEditReschedule} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              
+              <div className="form-group">
+                <label>Workout Name / Focus</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={editRescheduleData.workoutName} 
+                  onChange={(e) => setEditRescheduleData({ ...editRescheduleData, workoutName: e.target.value })} 
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Status</label>
+                <select value={editRescheduleData.status} onChange={(e) => setEditRescheduleData({ ...editRescheduleData, status: e.target.value })}>
+                  <option value="Upcoming">Upcoming</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Missed">Missed</option>
+                  <option value="Rescheduled">Rescheduled</option>
+                  <option value="Skipped">Skipped</option>
+                  <option value="Delayed">Delayed</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Rescheduled Date (YYYY-MM-DD)</label>
+                <input 
+                  type="date" 
+                  value={editRescheduleData.rescheduledTo} 
+                  onChange={(e) => setEditRescheduleData({ ...editRescheduleData, rescheduledTo: e.target.value })} 
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Trainer Notes / Remarks</label>
+                <input 
+                  type="text" 
+                  value={editRescheduleData.note} 
+                  onChange={(e) => setEditRescheduleData({ ...editRescheduleData, note: e.target.value })} 
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowEditRescheduleModal(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{ background: 'var(--color-primary)' }}>Save Changes</button>
+              </div>
+
+            </form>
+
           </div>
         </div>
       )}

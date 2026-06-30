@@ -142,6 +142,18 @@ INSERT INTO public.settings (id, gym_name, address, phone, email)
 VALUES ('settings', 'Keerthan MindFit', 'Keerthan MindFit Center, Bengaluru, IN', '+91 99887 76655', 'info@keerthanmindfit.com')
 ON CONFLICT (id) DO NOTHING;
 
+-- 10. WORKOUT TEMPLATES LIBRARY TABLE
+CREATE TABLE IF NOT EXISTS public.workout_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    goal TEXT,
+    difficulty TEXT DEFAULT 'Intermediate',
+    description TEXT,
+    schedule JSONB NOT NULL,
+    is_favorite BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
 -- Disable Row Level Security (RLS) to allow direct CRUD operations without policies
 ALTER TABLE public.members DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance DISABLE ROW LEVEL SECURITY;
@@ -152,4 +164,5 @@ ALTER TABLE public.progress DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notifications DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rescheduled_workouts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workout_templates DISABLE ROW LEVEL SECURITY;
 

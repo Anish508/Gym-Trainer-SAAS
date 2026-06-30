@@ -19,7 +19,8 @@ const TABLE_MAP = {
   progress: 'progress',
   notifications: 'notifications',
   settings: 'settings',
-  rescheduledWorkouts: 'rescheduled_workouts'
+  rescheduledWorkouts: 'rescheduled_workouts',
+  workoutTemplates: 'workout_templates'
 };
 
 // Camel to Snake helper for Postgres
@@ -61,250 +62,162 @@ export function snakeToCamel(obj) {
 
 // Pre-seeded Mock Data for Keerthan MindFit
 const MOCK_DATA_SEED = {
-  members: [
-    {
-      id: "KMF101",
-      fullName: "Alex Mercer",
-      gender: "Male",
-      age: 26,
-      height: 182,
-      weight: 78,
-      bmi: "23.5",
-      mobileNumber: "+91 98765 43210",
-      email: "alex.mercer@gmail.com",
-      address: "12, Fitness Street, Crossways, Bangalore",
-      emergencyContact: "Sarah Mercer - +91 98765 43211",
-      bloodGroup: "A+",
-      fitnessGoal: "Muscle Gain",
-      joinDate: "2026-01-10",
-      membershipPlan: "Yearly",
-      status: "active",
-      trainerNotes: "Focus on upper body hypertrophy.",
-      medicalConditions: "None",
-      profilePhoto: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300&fit=crop",
-      isPT: true,
-      ptFees: 5000,
-      ptSchedule: "06:00 AM - 07:00 AM",
-      ptSessionsCompleted: 8,
-      ptSessionsTotal: 12
-    },
-    {
-      id: "KMF102",
-      fullName: "Sarah Connor",
-      gender: "Female",
-      age: 29,
-      height: 168,
-      weight: 62,
-      bmi: "22.0",
-      mobileNumber: "+91 98765 43220",
-      email: "sarah.connor@gmail.com",
-      address: "44, Rebel Heights, Bangalore",
-      emergencyContact: "John Connor - +91 98765 43221",
-      bloodGroup: "O+",
-      fitnessGoal: "Strength Training",
-      joinDate: "2026-02-15",
-      membershipPlan: "Half-Yearly",
-      status: "active",
-      trainerNotes: "Cardio endurance and core conditioning.",
-      medicalConditions: "Past knee injury, avoid heavy squats",
-      profilePhoto: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=300&fit=crop",
-      isPT: false,
-      ptFees: 0,
-      ptSchedule: "",
-      ptSessionsCompleted: 0,
-      ptSessionsTotal: 0
-    },
-    {
-      id: "KMF103",
-      fullName: "David Goggins",
-      gender: "Male",
-      age: 38,
-      height: 185,
-      weight: 84,
-      bmi: "24.5",
-      mobileNumber: "+91 98765 43230",
-      email: "david.goggins@email.com",
-      address: "Running Trail 1, Bangalore",
-      emergencyContact: "Team Goggins - +91 98765 43231",
-      bloodGroup: "B+",
-      fitnessGoal: "Endurance Training",
-      joinDate: "2026-03-01",
-      membershipPlan: "Monthly",
-      status: "active",
-      trainerNotes: "Extremely high pain tolerance.",
-      medicalConditions: "None",
-      profilePhoto: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=300&fit=crop",
-      isPT: true,
-      ptFees: 6000,
-      ptSchedule: "05:00 AM - 06:00 AM",
-      ptSessionsCompleted: 10,
-      ptSessionsTotal: 15
-    },
-    {
-      id: "KMF104",
-      fullName: "Emily Blunt",
-      gender: "Female",
-      age: 34,
-      height: 171,
-      weight: 56,
-      bmi: "19.2",
-      mobileNumber: "+91 98765 43240",
-      email: "emily.blunt@gmail.com",
-      address: "5th Avenue, Parkside, Bangalore",
-      emergencyContact: "John Krasinski - +91 98765 43241",
-      bloodGroup: "AB-",
-      fitnessGoal: "Weight Loss",
-      joinDate: "2026-05-12",
-      membershipPlan: "Quarterly",
-      status: "active",
-      trainerNotes: "Recovering from minor wrist sprain, avoid heavy cleans.",
-      medicalConditions: "Recent wrist sprain",
-      profilePhoto: "https://images.unsplash.com/photo-1548690312-e3b507d8c110?w=300&fit=crop",
-      isPT: false,
-      ptFees: 0,
-      ptSchedule: "",
-      ptSessionsCompleted: 0,
-      ptSessionsTotal: 0
-    },
-    {
-      id: "KMF105",
-      fullName: "Marcus Aurelius",
-      gender: "Male",
-      age: 45,
-      height: 178,
-      weight: 80,
-      bmi: "25.2",
-      mobileNumber: "+91 98765 43250",
-      email: "marcus.stoic@gmail.com",
-      address: "Stoic Academy, Bangalore",
-      emergencyContact: "Lucius - +91 98765 43251",
-      bloodGroup: "O-",
-      fitnessGoal: "General Fitness",
-      joinDate: "2026-06-01",
-      membershipPlan: "Monthly",
-      status: "suspended",
-      trainerNotes: "Suspended membership due to travel.",
-      medicalConditions: "Lower back pain",
-      profilePhoto: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=300&fit=crop",
-      isPT: false,
-      ptFees: 0,
-      ptSchedule: "",
-      ptSessionsCompleted: 0,
-      ptSessionsTotal: 0
-    }
-  ],
+  members: [],
   attendance: [],
-  payments: [
-    { id: "PAY101", memberId: "KMF101", planType: "Yearly", amount: 15000, paymentDate: "2026-01-10", dueDate: "2027-01-10", status: "paid", transactionId: "UPI-481920-VAL" },
-    { id: "PAY102", memberId: "KMF102", planType: "Half-Yearly", amount: 8500, paymentDate: "2026-02-15", dueDate: "2026-08-15", status: "paid", transactionId: "CASH-PAID" },
-    { id: "PAY103", memberId: "KMF103", planType: "Monthly", amount: 2000, paymentDate: "2026-06-01", dueDate: "2026-07-01", status: "paid", transactionId: "UPI-901827-GPG" },
-    { id: "PAY104", memberId: "KMF104", planType: "Quarterly", amount: 5000, paymentDate: "2026-05-12", dueDate: "2026-08-12", status: "paid", transactionId: "UPI-771120-NET" },
-    { id: "PAY105", memberId: "KMF105", planType: "Monthly", amount: 2000, paymentDate: "2026-05-01", dueDate: "2026-06-01", status: "overdue", transactionId: "" }
-  ],
-  workouts: [
-    {
-      id: "W-KMF101",
-      memberId: "KMF101",
-      planName: "Muscle Gain Routine",
-      difficulty: "Advanced",
-      fitnessGoal: "Muscle Gain",
-      schedule: {
-        "Monday": "Chest + Triceps",
-        "Tuesday": "Back + Biceps",
-        "Wednesday": "Legs",
-        "Thursday": "Shoulders",
-        "Friday": "Arms",
-        "Saturday": "Cardio + Abs",
-        "Sunday": "Rest"
-      }
-    },
-    {
-      id: "W-KMF102",
-      memberId: "KMF102",
-      planName: "Strength & Endurance",
-      difficulty: "Intermediate",
-      fitnessGoal: "Strength Training",
-      schedule: {
-        "Monday": "Chest + Triceps",
-        "Tuesday": "Back + Biceps",
-        "Wednesday": "Legs",
-        "Thursday": "Shoulders",
-        "Friday": "Arms",
-        "Saturday": "Cardio + Abs",
-        "Sunday": "Rest"
-      }
-    }
-  ],
-  dietPlans: [
-    {
-      id: "D-KMF101",
-      memberId: "KMF101",
-      planName: "Muscle Gain Plan",
-      targetCalories: 2800,
-      targetProtein: 150,
-      targetCarbs: 350,
-      targetFats: 70,
-      waterIntake: 3000,
-      meals: {
-        "Breakfast": "Oats, Eggs, Milk",
-        "Lunch": "Rice, Chicken, Vegetables",
-        "Dinner": "Fish, Salad"
-      },
-      supplements: "Whey Protein, Creatine"
-    },
-    {
-      id: "D-KMF102",
-      memberId: "KMF102",
-      planName: "Fat Loss Split Plan",
-      targetCalories: 1800,
-      targetProtein: 120,
-      targetCarbs: 180,
-      targetFats: 50,
-      waterIntake: 3500,
-      meals: {
-        "Breakfast": "Oats, Eggs, Milk",
-        "Lunch": "Rice, Chicken, Vegetables",
-        "Dinner": "Fish, Salad"
-      },
-      supplements: "Whey Protein"
-    }
-  ],
-  progress: [
-    {
-      id: "PROG-101-1",
-      memberId: "KMF101",
-      date: "2026-05-15",
-      weight: 76.5,
-      chest: 101,
-      waist: 82,
-      hips: 95,
-      biceps: 36.5,
-      thighs: 56,
-      bodyFat: 15.5,
-      beforePhoto: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=200&fit=crop",
-      afterPhoto: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=200&fit=crop"
-    },
-    {
-      id: "PROG-101-2",
-      memberId: "KMF101",
-      date: "2026-06-20",
-      weight: 78.0,
-      chest: 104,
-      waist: 80,
-      hips: 94,
-      biceps: 38.0,
-      thighs: 57.5,
-      bodyFat: 14.2,
-      beforePhoto: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=200&fit=crop",
-      afterPhoto: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=200&fit=crop"
-    }
-  ],
-  notifications: [
-    { id: "NOT1", memberId: "All", title: "New Gym Timings", message: "Starting July 1st, Keerthan MindFit will remain open from 5:00 AM to 10:00 PM on weekdays.", type: "system", date: "2026-06-20", read: false },
-    { id: "NOT2", memberId: "KMF101", title: "New Workout Assigned", message: "Trainer updated your Muscle Gain split plan.", type: "workout", date: "2026-06-22", read: false },
-    { id: "NOT3", memberId: "KMF105", title: "Membership Due Reminder", message: "Your membership expired on 2026-06-01. Please renew.", type: "fee", date: "2026-06-15", read: false }
-  ],
+  payments: [],
+  workouts: [],
+  dietPlans: [],
+  progress: [],
+  notifications: [],
   rescheduledWorkouts: [],
+  workoutTemplates: [
+    {
+      id: "tmpl-1",
+      name: "Beginner Full Body",
+      goal: "General Conditioning & Movement Mechanics",
+      difficulty: "Beginner",
+      description: "Full body split targeting foundational movements for gym novices.",
+      isFavorite: false,
+      schedule: {
+        Monday: {
+          isRestDay: false,
+          workoutName: "Full Body A",
+          exercises: [
+            { id: "e1", name: "Goblet Squats", sets: 3, reps: 12, weight: 16, restTime: "60s", notes: "Focus on knee alignment" },
+            { id: "e2", name: "Dumbbell Chest Press", sets: 3, reps: 10, weight: 12, restTime: "60s", notes: "Control the descending path" },
+            { id: "e3", name: "Lat Pulldown", sets: 3, reps: 12, weight: 35, restTime: "60s", notes: "Squeeze upper back" }
+          ]
+        },
+        Tuesday: { isRestDay: true, workoutName: "Rest Day", exercises: [] },
+        Wednesday: {
+          isRestDay: false,
+          workoutName: "Full Body B",
+          exercises: [
+            { id: "e4", name: "Romanian Deadlift", sets: 3, reps: 12, weight: 30, restTime: "75s", notes: "Hinge at the hips" },
+            { id: "e5", name: "Dumbbell Shoulder Press", sets: 3, reps: 10, weight: 10, restTime: "60s", notes: "Don't flare elbows" },
+            { id: "e6", name: "Seated Cable Row", sets: 3, reps: 12, weight: 30, restTime: "60s", notes: "Keep spine straight" }
+          ]
+        },
+        Thursday: { isRestDay: true, workoutName: "Rest Day", exercises: [] },
+        Friday: {
+          isRestDay: false,
+          workoutName: "Full Body C",
+          exercises: [
+            { id: "e7", name: "Leg Press", sets: 3, reps: 12, weight: 80, restTime: "90s", notes: "Avoid locking knees" },
+            { id: "e8", name: "Pushups", sets: 3, reps: 10, weight: 0, restTime: "60s", notes: "Tighten core" },
+            { id: "e9", name: "Face Pulls", sets: 3, reps: 15, weight: 15, restTime: "45s", notes: "Target rear delts" }
+          ]
+        },
+        Saturday: { isRestDay: true, workoutName: "Rest Day", exercises: [] },
+        Sunday: { isRestDay: true, workoutName: "Rest Day", exercises: [] }
+      }
+    },
+    {
+      id: "tmpl-2",
+      name: "Bodybuilding Split",
+      goal: "Maximal Hypertrophy & Muscle Density",
+      difficulty: "Advanced",
+      description: "Traditional high-volume bodybuilding split designed to build muscle thickness.",
+      isFavorite: true,
+      schedule: {
+        Monday: {
+          isRestDay: false,
+          workoutName: "Chest & Triceps",
+          exercises: [
+            { id: "e201", name: "Incline Barbell Press", sets: 4, reps: 8, weight: 60, restTime: "90s", notes: "Upper chest focus" },
+            { id: "e202", name: "Flat Dumbbell Press", sets: 3, reps: 10, weight: 26, restTime: "90s", notes: "Full stretch at bottom" },
+            { id: "e203", name: "Tricep Overhead Pushdown", sets: 4, reps: 12, weight: 25, restTime: "60s", notes: "Keep elbows tucked" }
+          ]
+        },
+        Tuesday: {
+          isRestDay: false,
+          workoutName: "Back & Biceps",
+          exercises: [
+            { id: "e204", name: "Conventional Deadlifts", sets: 4, reps: 6, weight: 100, restTime: "120s", notes: "Engage lats before pulling" },
+            { id: "e205", name: "Weighted Pull-Ups", sets: 3, reps: 8, weight: 10, restTime: "90s", notes: "Full range dead hang" },
+            { id: "e206", name: "Barbell Bicep Curls", sets: 4, reps: 10, weight: 30, restTime: "60s", notes: "Minimize hip sway" }
+          ]
+        },
+        Wednesday: {
+          isRestDay: false,
+          workoutName: "Legs & Abs",
+          exercises: [
+            { id: "e207", name: "Barbell Back Squats", sets: 4, reps: 8, weight: 80, restTime: "120s", notes: "Squat below parallel" },
+            { id: "e208", name: "Hamstring Curls", sets: 3, reps: 12, weight: 45, restTime: "75s", notes: "Slow eccentric control" },
+            { id: "e209", name: "Hanging Leg Raises", sets: 3, reps: 15, weight: 0, restTime: "60s", notes: "Target lower abs" }
+          ]
+        },
+        Thursday: {
+          isRestDay: false,
+          workoutName: "Shoulders & Arms",
+          exercises: [
+            { id: "e210", name: "Seated Barbell Overhead Press", sets: 4, reps: 8, weight: 45, restTime: "90s", notes: "Bar to collarbone level" },
+            { id: "e211", name: "Dumbbell Lateral Raises", sets: 4, reps: 15, weight: 12, restTime: "60s", notes: "Lead with elbows" },
+            { id: "e212", name: "Close-Grip Bench Press", sets: 3, reps: 10, weight: 50, restTime: "75s", notes: "Inner tricep focus" }
+          ]
+        },
+        Friday: { isRestDay: true, workoutName: "Active Recovery", exercises: [] },
+        Saturday: {
+          isRestDay: false,
+          workoutName: "Functional HIIT Circuits",
+          exercises: [
+            { id: "e213", name: "Kettlebell Swings", sets: 4, reps: 20, weight: 20, restTime: "45s", notes: "Hinge-power output" },
+            { id: "e214", name: "Burpees", sets: 4, reps: 12, weight: 0, restTime: "45s", notes: "High heart rate pacing" }
+          ]
+        },
+        Sunday: { isRestDay: true, workoutName: "Rest Day", exercises: [] }
+      }
+    },
+    {
+      id: "tmpl-3",
+      name: "Push Pull Legs",
+      goal: "Hypertrophy & Base Strength Progression",
+      difficulty: "Intermediate",
+      description: "Classic PPL program to split mechanical movement classes for optimal recovery.",
+      isFavorite: false,
+      schedule: {
+        Monday: {
+          isRestDay: false,
+          workoutName: "Push",
+          exercises: [
+            { id: "e301", name: "Flat Barbell Bench Press", sets: 4, reps: 6, weight: 70, restTime: "120s", notes: "Warmup shoulder capsules first" },
+            { id: "e302", name: "Dumbbell Incline Bench", sets: 3, reps: 10, weight: 24, restTime: "90s", notes: "Stretch chest muscles" }
+          ]
+        },
+        Tuesday: {
+          isRestDay: false,
+          workoutName: "Pull",
+          exercises: [
+            { id: "e303", name: "Bent Over Barbell Row", sets: 4, reps: 8, weight: 55, restTime: "90s", notes: "Pull to lower waist" },
+            { id: "e304", name: "Chin Ups", sets: 3, reps: 10, weight: 0, restTime: "90s", notes: "Focus on lat squeeze" }
+          ]
+        },
+        Wednesday: {
+          isRestDay: false,
+          workoutName: "Legs",
+          exercises: [
+            { id: "e305", name: "Squats", sets: 4, reps: 8, weight: 80, restTime: "120s", notes: "Deep reps" }
+          ]
+        },
+        Thursday: { isRestDay: true, workoutName: "Rest Day", exercises: [] },
+        Friday: {
+          isRestDay: false,
+          workoutName: "Push B",
+          exercises: [
+            { id: "e306", name: "Standing Overhead Press", sets: 4, reps: 8, weight: 40, restTime: "90s", notes: "Squeeze glutes to protect lower back" }
+          ]
+        },
+        Saturday: {
+          isRestDay: false,
+          workoutName: "Pull B",
+          exercises: [
+            { id: "e307", name: "Chest Supported Row", sets: 4, reps: 10, weight: 22, restTime: "75s", notes: "Contract rhomboids" }
+          ]
+        },
+        Sunday: { isRestDay: true, workoutName: "Rest Day", exercises: [] }
+      }
+    }
+  ],
   settings: {
     id: "settings",
     gymName: "Keerthan MindFit",
@@ -467,7 +380,7 @@ export async function seedLocalStorage() {
   }
 
   if (shouldSeed && !localStorage.getItem(`${keyPrefix}members`)) {
-    MOCK_DATA_SEED.attendance = seedAttendanceHistory();
+    MOCK_DATA_SEED.attendance = [];
     
     localStorage.setItem(`${keyPrefix}members`, JSON.stringify(MOCK_DATA_SEED.members));
     localStorage.setItem(`${keyPrefix}attendance`, JSON.stringify(MOCK_DATA_SEED.attendance));
@@ -477,11 +390,20 @@ export async function seedLocalStorage() {
     localStorage.setItem(`${keyPrefix}progress`, JSON.stringify(MOCK_DATA_SEED.progress));
     localStorage.setItem(`${keyPrefix}notifications`, JSON.stringify(MOCK_DATA_SEED.notifications));
     localStorage.setItem(`${keyPrefix}rescheduledWorkouts`, JSON.stringify(MOCK_DATA_SEED.rescheduledWorkouts));
+    localStorage.setItem(`${keyPrefix}workoutTemplates`, JSON.stringify(MOCK_DATA_SEED.workoutTemplates));
     localStorage.setItem(`${keyPrefix}settings`, JSON.stringify(MOCK_DATA_SEED.settings));
     
     console.log("Keerthan MindFit: LocalStorage database pre-populated successfully.");
   } else {
     console.log("Keerthan MindFit: Safety check skipped seeding to prevent data loss.");
+    if (!localStorage.getItem(`${keyPrefix}workoutTemplates`)) {
+      localStorage.setItem(`${keyPrefix}workoutTemplates`, JSON.stringify(MOCK_DATA_SEED.workoutTemplates || []));
+      console.log("Keerthan MindFit: Supplemental seeding for workoutTemplates completed.");
+    }
+    if (!localStorage.getItem(`${keyPrefix}settings`)) {
+      localStorage.setItem(`${keyPrefix}settings`, JSON.stringify(MOCK_DATA_SEED.settings || {}));
+      console.log("Keerthan MindFit: Supplemental seeding for settings completed.");
+    }
   }
 }
 
