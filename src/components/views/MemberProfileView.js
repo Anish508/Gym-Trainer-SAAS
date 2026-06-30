@@ -491,7 +491,7 @@ export default function MemberProfileView({ memberId, onBack }) {
   );
 
   const renderWorkoutTab = () => (
-    <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+    <div className="card-glass profile-tab-card" style={{ padding: '1.5rem', borderRadius: '16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
         <div>
           <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.15rem' }}>Workout Split Reference</h3>

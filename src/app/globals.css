@@ -1840,12 +1840,17 @@ body, html {
   align-items: center;
   width: 100%;
 }
+.exercise-row-grid input {
+  width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
 
 @media (max-width: 768px) {
   .exercise-row-grid {
     grid-template-columns: 1fr 1fr 1fr !important;
     gap: 8px !important;
-    padding: 0.85rem !important;
+    padding: 0.8rem !important;
     background: rgba(255, 255, 255, 0.02) !important;
     border: 1px solid var(--border-glass) !important;
     border-radius: 8px !important;
@@ -1867,6 +1872,9 @@ body, html {
     border: 1px solid rgba(239, 68, 68, 0.2) !important;
     background: rgba(239, 68, 68, 0.05) !important;
     border-radius: 6px !important;
+  }
+  .profile-tab-card {
+    padding: 0.75rem !important;
   }
 }
 
