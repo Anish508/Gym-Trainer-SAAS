@@ -2,9 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { dbReadOne, dbReadAll, dbCreate, dbUpdate } from '@/lib/db';
-import { calculateMacros } from '@/lib/utils';
-import { workoutTemplates } from '@/lib/workoutTemplates';
-import { QRCodeSVG } from 'qrcode.react';
+import { calculateMacros, calculateBMI } from '@/lib/utils';
 import { Line } from 'react-chartjs-2';
 import { useToast } from '@/context/ToastContext';
 import { 
@@ -17,14 +15,14 @@ import {
   ChevronLeft, 
   CreditCard,
   Trash2,
-  Copy,
-  Clipboard,
   Calendar,
   Activity,
   Award,
   TrendingUp,
   Droplet,
-  X
+  X,
+  PlusCircle,
+  FileText
 } from 'lucide-react';
 
 export default function MemberProfileView({ memberId, onBack }) {
@@ -39,60 +37,63 @@ export default function MemberProfileView({ memberId, onBack }) {
   const [payments, setPayments] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [gymSettings, setGymSettings] = useState(null);
-  
-  // Form/Input States
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-  
-  // Workout split state - holds parsed object per day
-  const [workoutSchedule, setWorkoutSchedule] = useState({
-    Monday: { name: '', muscleGroup: '', notes: '', isRestDay: false },
-    Tuesday: { name: '', muscleGroup: '', notes: '', isRestDay: false },
-    Wednesday: { name: '', muscleGroup: '', notes: '', isRestDay: false },
-    Thursday: { name: '', muscleGroup: '', notes: '', isRestDay: false },
-    Friday: { name: '', muscleGroup: '', notes: '', isRestDay: false },
-    Saturday: { name: '', muscleGroup: '', notes: '', isRestDay: false },
-    Sunday: { name: '', muscleGroup: '', notes: '', isRestDay: true }
-  });
-  const [workoutPlanName, setWorkoutPlanName] = useState('');
-  const [workoutDifficulty, setWorkoutDifficulty] = useState('Intermediate');
 
-  // Diet form state
+  // Workout Split State (Monday to Sunday)
+  const defaultExercises = [
+    { id: '1', name: 'Bench Press', sets: 4, reps: 10, weight: 80, notes: 'Flat bench press' }
+  ];
+  const [workoutSchedule, setWorkoutSchedule] = useState({
+    Monday: { isRestDay: false, exercises: [...defaultExercises] },
+    Tuesday: { isRestDay: false, exercises: [...defaultExercises] },
+    Wednesday: { isRestDay: false, exercises: [...defaultExercises] },
+    Thursday: { isRestDay: false, exercises: [...defaultExercises] },
+    Friday: { isRestDay: false, exercises: [...defaultExercises] },
+    Saturday: { isRestDay: false, exercises: [...defaultExercises] },
+    Sunday: { isRestDay: true, exercises: [] }
+  });
+
+  // Diet Form State
   const [dietForm, setDietForm] = useState({
-    planName: 'Standard Nutrition Plan',
-    targetCalories: 2000,
-    targetProtein: 100,
-    targetCarbs: 200,
-    targetFats: 60,
-    waterIntake: 2500,
-    meals: { Breakfast: '', Lunch: '', Snack: '', Dinner: '' },
-    supplements: ''
+    calories: 2200,
+    protein: 140,
+    carbs: 220,
+    fat: 70,
+    waterIntake: 3000,
+    meals: {
+      Breakfast: { food: 'Oats & Egg Whites', quantity: '1 bowl + 4 eggs', notes: 'Consume post-cardio' },
+      Lunch: { food: 'Chicken Rice & Greens', quantity: '200g chicken, 1 cup rice', notes: 'Low sodium' },
+      Snack: { food: 'Whey Shake & Almonds', quantity: '1 scoop + 10 almonds', notes: 'Pre-workout meal' },
+      Dinner: { food: 'Salmon or Lean Beef', quantity: '150g steak + salad', notes: 'Zero carbs' }
+    },
+    supplements: 'Creatine, Whey Protein, Fish Oil, Vitamin D',
+    notes: 'Prioritize whole foods over shakes.'
   });
 
   // Progress Log form state
   const [newLog, setNewLog] = useState({
     date: new Date().toISOString().split('T')[0],
-    weight: '', chest: '', waist: '', hips: '', biceps: '', thighs: '', bodyFat: ''
+    weight: '', bodyFat: '', chest: '', waist: '', arms: '', thighs: '', notes: ''
   });
 
-  // Record Payment Modal
+  // Bookkeeping Payment Modal Form
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     paymentDate: new Date().toISOString().split('T')[0],
-    planType: '',
     amount: '',
-    status: 'paid',
-    transactionId: '',
-    dueDate: ''
+    method: 'UPI', // UPI, Cash, Card
+    remarks: 'Subscription Fee'
   });
 
-  // PT Config Modal State
+  // PT Configuration Modal State
   const [showPTForm, setShowPTForm] = useState(false);
   const [ptForm, setPtForm] = useState({
     isPT: false,
-    ptFees: '',
+    ptSessionsPerWeek: 3,
+    ptFees: 5000,
+    ptStartDate: new Date().toISOString().split('T')[0],
     ptSchedule: '',
-    ptSessionsTotal: 10,
-    ptSessionsCompleted: 0
+    ptSessionsCompleted: 0,
+    ptSessionsTotal: 12
   });
 
   useEffect(() => {
@@ -101,839 +102,668 @@ export default function MemberProfileView({ memberId, onBack }) {
     }
   }, [memberId]);
 
-  // Synchronize active tab with URL hash fragments if any
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const handleHashTab = () => {
-        const hash = window.location.hash;
-        if (hash.includes('#workouts')) setActiveTab('workout');
-        else if (hash.includes('#diet')) setActiveTab('diet');
-        else if (hash.includes('#progress')) setActiveTab('progress');
-        else if (hash.includes('#billing')) setActiveTab('billing');
-        else if (hash.includes('#attendance')) setActiveTab('attendance');
-        else if (hash.includes('#profile')) setActiveTab('profile');
-      };
-      handleHashTab();
-      window.addEventListener('hashchange', handleHashTab);
-      return () => window.removeEventListener('hashchange', handleHashTab);
-    }
-  }, [memberId]);
-
   const loadProfileData = async () => {
-    const mem = await dbReadOne('members', memberId);
-    if (!mem) return;
-    setMember(mem);
+    try {
+      const mem = await dbReadOne('members', memberId);
+      if (!mem) return;
+      setMember(mem);
 
-    // 1. Fetch Workout Plan and parse schedule
-    const wList = await dbReadAll('workouts') || [];
-    const wPlan = wList.find(w => w.memberId === memberId);
-    if (wPlan) {
-      setWorkout(wPlan);
-      setWorkoutPlanName(wPlan.planName || 'Custom Split');
-      setWorkoutDifficulty(wPlan.difficulty || 'Intermediate');
-      
-      const parsedSched = {};
-      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      days.forEach(day => {
-        const dayVal = wPlan.schedule?.[day];
-        parsedSched[day] = parseDaySchedule(dayVal);
+      // Initialize PT Form values
+      setPtForm({
+        isPT: mem.isPT || false,
+        ptSessionsPerWeek: mem.ptSessionsPerWeek || 3,
+        ptFees: mem.ptFees || 5000,
+        ptStartDate: mem.ptStartDate || new Date().toISOString().split('T')[0],
+        ptSchedule: mem.ptSchedule || '',
+        ptSessionsCompleted: mem.ptSessionsCompleted || 0,
+        ptSessionsTotal: mem.ptSessionsTotal || 12
       });
-      setWorkoutSchedule(parsedSched);
+
+      // 1. Fetch Workout Plan split
+      const wList = await dbReadAll('workouts') || [];
+      const wPlan = wList.find(w => w.memberId === memberId);
+      if (wPlan && wPlan.schedule) {
+        setWorkout(wPlan);
+        
+        // Parse workout split
+        const parsed = {};
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        days.forEach(day => {
+          const dayData = wPlan.schedule[day];
+          if (dayData) {
+            parsed[day] = {
+              isRestDay: dayData.isRestDay === undefined ? (dayData === 'Rest' || dayData === 'Rest Day') : dayData.isRestDay,
+              exercises: Array.isArray(dayData.exercises) ? dayData.exercises : []
+            };
+          } else {
+            parsed[day] = { isRestDay: day === 'Sunday', exercises: [] };
+          }
+        });
+        setWorkoutSchedule(parsed);
+      }
+
+      // 2. Fetch Diet Plan reference
+      const dList = await dbReadAll('dietPlans') || [];
+      const dPlan = dList.find(d => d.memberId === memberId);
+      if (dPlan) {
+        setDiet(dPlan);
+        setDietForm({
+          calories: dPlan.calories || 2200,
+          protein: dPlan.protein || 140,
+          carbs: dPlan.carbs || 220,
+          fat: dPlan.fat || 70,
+          waterIntake: dPlan.waterIntake || 3000,
+          meals: dPlan.meals || dietForm.meals,
+          supplements: dPlan.supplements || 'Creatine, Whey Protein, Fish Oil, Vitamin D',
+          notes: dPlan.notes || ''
+        });
+      }
+
+      // 3. Fetch progress logs
+      const pList = await dbReadAll('progress') || [];
+      const pLogs = pList.filter(p => p.memberId === memberId) || [];
+      setProgressLogs(pLogs.sort((a, b) => new Date(a.date) - new Date(b.date)));
+
+      // 4. Fetch Payments logs
+      const allPayments = await dbReadAll('payments') || [];
+      setPayments(allPayments.filter(p => p.memberId === memberId) || []);
+
+      // 5. Fetch Attendance checklist
+      const allAtt = await dbReadAll('attendance') || [];
+      setAttendance(allAtt.filter(a => a.memberId === memberId).sort((a,b) => new Date(b.date) - new Date(a.date)));
+
+      // 6. Fetch general settings
+      const settingsObj = await dbReadOne('settings', 'settings');
+      setGymSettings(settingsObj || {});
+
+    } catch (e) {
+      console.error("Error loading profile details", e);
     }
-
-    // 2. Fetch Diet Plan
-    const dList = await dbReadAll('dietPlans') || [];
-    const dPlan = dList.find(d => d.memberId === memberId);
-    if (dPlan) {
-      setDiet(dPlan);
-      setDietForm({
-        planName: dPlan.planName || 'Lean Body Plan',
-        targetCalories: dPlan.targetCalories || 2000,
-        targetProtein: dPlan.targetProtein || 100,
-        targetCarbs: dPlan.targetCarbs || 200,
-        targetFats: dPlan.targetFats || 60,
-        waterIntake: dPlan.waterIntake || 2500,
-        meals: {
-          Breakfast: dPlan.meals?.Breakfast || dPlan.meals?.breakfast || '',
-          Lunch: dPlan.meals?.Lunch || dPlan.meals?.lunch || '',
-          Snack: dPlan.meals?.Snack || dPlan.meals?.snack || '',
-          Dinner: dPlan.meals?.Dinner || dPlan.meals?.dinner || ''
-        },
-        supplements: dPlan.supplements || ''
-      });
-    }
-
-    // 3. Fetch Progress logs
-    const pList = await dbReadAll('progress') || [];
-    const pLogs = pList.filter(p => p.memberId === memberId) || [];
-    setProgressLogs(pLogs.sort((a, b) => new Date(a.date) - new Date(b.date)));
-
-    // 4. Fetch Payments
-    const pPayments = await dbReadAll('payments') || [];
-    setPayments(pPayments.filter(p => p.memberId === memberId) || []);
-
-    // 5. Fetch Attendance
-    const allAtt = await dbReadAll('attendance') || [];
-    setAttendance(allAtt.filter(a => a.memberId === memberId).sort((a,b) => new Date(b.date) - new Date(a.date)));
-
-    // 6. Fetch settings
-    const settingsObj = await dbReadOne('settings', 'settings');
-    setGymSettings(settingsObj || {});
   };
 
-  // Parsing helper for workout days
-  const parseDaySchedule = (dayVal) => {
-    if (!dayVal) {
-      return { name: '', muscleGroup: '', notes: '', isRestDay: true };
-    }
-    if (typeof dayVal === 'string') {
-      const isRest = dayVal.toLowerCase() === 'rest' || dayVal.toLowerCase() === 'rest day' || dayVal.toLowerCase() === 'rest day badge';
-      return {
-        name: isRest ? '' : dayVal,
-        muscleGroup: '',
-        notes: '',
-        isRestDay: isRest
-      };
-    }
-    return {
-      name: dayVal.name || dayVal.workoutName || '',
-      muscleGroup: dayVal.muscleGroup || '',
-      notes: dayVal.notes || '',
-      isRestDay: !!dayVal.isRestDay
-    };
-  };
-
-  // PT session trackers
-  const handleMarkPTComplete = async () => {
+  // Profile actions
+  const handleDeactivateMember = async () => {
     if (!member) return;
-    const completed = Number(member.ptSessionsCompleted || 0);
-    const total = Number(member.ptSessionsTotal || 10);
-    
-    if (completed < total) {
-      const newCompleted = completed + 1;
-      await dbUpdate('members', memberId, { ptSessionsCompleted: newCompleted });
-      showToast('success', `PT session marked complete! (${newCompleted}/${total} sessions finished)`);
+    const newStatus = member.status === 'active' ? 'suspended' : 'active';
+    if (window.confirm(`Are you sure you want to change this member's status to ${newStatus.toUpperCase()}?`)) {
+      await dbUpdate('members', memberId, { status: newStatus });
+      showToast('success', `Member status set to ${newStatus}`);
       loadProfileData();
       window.dispatchEvent(new Event('db-change'));
     }
   };
 
-  const handleResetPTCounter = async () => {
+  const handleRenewMembership = async () => {
     if (!member) return;
-    const newTotal = prompt("Enter total sessions for the new PT pack:", member.ptSessionsTotal || 10);
-    if (newTotal !== null) {
-      await dbUpdate('members', memberId, { 
-        ptSessionsCompleted: 0, 
-        ptSessionsTotal: Number(newTotal) || 10 
+    try {
+      const planPrice = gymSettings?.membershipPlans?.find(p => p.name === member.membershipPlan)?.price || 2000;
+      const duration = gymSettings?.membershipPlans?.find(p => p.name === member.membershipPlan)?.duration || 1;
+
+      const newRenewal = new Date();
+      newRenewal.setMonth(newRenewal.getMonth() + duration);
+      const renewalStr = newRenewal.toISOString().split('T')[0];
+
+      await dbUpdate('members', memberId, { status: 'active' });
+
+      // Bookkeeping payment
+      await dbCreate('payments', {
+        id: `PAY-${memberId}-${Math.floor(1000 + Math.random() * 9000)}`,
+        memberId,
+        planType: member.membershipPlan,
+        amount: planPrice,
+        paymentDate: new Date().toISOString().split('T')[0],
+        dueDate: renewalStr,
+        status: 'paid',
+        transactionId: 'UPI-RENEW-TABS'
       });
-      showToast('success', "PT Session pack renewed/reset successfully.");
+
+      showToast('success', `Membership renewed successfully! Next due date: ${renewalStr}`);
       loadProfileData();
       window.dispatchEvent(new Event('db-change'));
+    } catch(e) {
+      showToast('error', 'Renewal failed.');
     }
   };
 
+  // PT Configuration save
   const handleSavePTEnrollment = async (e) => {
     e.preventDefault();
     try {
       const payload = {
         isPT: ptForm.isPT,
+        ptSessionsPerWeek: ptForm.isPT ? Number(ptForm.ptSessionsPerWeek) : 0,
         ptFees: ptForm.isPT ? Number(ptForm.ptFees) : 0,
+        ptStartDate: ptForm.isPT ? ptForm.ptStartDate : '',
         ptSchedule: ptForm.isPT ? ptForm.ptSchedule : '',
         ptSessionsCompleted: ptForm.isPT ? Number(ptForm.ptSessionsCompleted) : 0,
-        ptSessionsTotal: ptForm.isPT ? Number(ptForm.ptSessionsTotal) : 10
+        ptSessionsTotal: ptForm.isPT ? Number(ptForm.ptSessionsTotal) : 12
       };
       await dbUpdate('members', memberId, payload);
-      showToast('success', ptForm.isPT ? "Personal Training configured successfully!" : "PT enrollment disabled.");
+      showToast('success', "Personal Training configuration saved!");
       setShowPTForm(false);
       loadProfileData();
       window.dispatchEvent(new Event('db-change'));
     } catch (err) {
-      console.error(err);
-      showToast('error', "Failed to configure PT details.");
+      showToast('error', "Failed to save PT configuration.");
     }
   };
 
-  // Workouts planner actions
-  const handleApplyTemplate = (templateId) => {
-    setSelectedTemplate(templateId);
-    const template = workoutTemplates.find(t => t.id === templateId);
-    if (template) {
-      setWorkoutPlanName(template.name);
-      setWorkoutDifficulty(template.difficulty);
-      
-      const parsedSched = {};
-      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-      days.forEach(day => {
-        parsedSched[day] = parseDaySchedule(template.schedule[day]);
-      });
-      setWorkoutSchedule(parsedSched);
-      showToast('info', `Applied split template: ${template.name}`);
-    }
-  };
-
-  const handleDuplicateDay = (targetDay, sourceDay) => {
+  // Workout list modifiers
+  const handleAddExercise = (day) => {
+    const newEx = {
+      id: String(Date.now()),
+      name: '',
+      sets: 4,
+      reps: 10,
+      weight: 60,
+      notes: ''
+    };
     setWorkoutSchedule(prev => ({
       ...prev,
-      [targetDay]: { ...prev[sourceDay] }
-    }));
-    showToast('success', `Duplicated ${sourceDay}'s routine to ${targetDay}.`);
-  };
-
-  const handleCopyWeek = () => {
-    localStorage.setItem('kmf_copied_week_routine', JSON.stringify(workoutSchedule));
-    showToast('success', "Workout week configuration copied to clipboard!");
-  };
-
-  const handlePasteWeek = () => {
-    const copied = localStorage.getItem('kmf_copied_week_routine');
-    if (copied) {
-      try {
-        setWorkoutSchedule(JSON.parse(copied));
-        showToast('success', "Workout week configuration pasted successfully!");
-      } catch (e) {
-        showToast('error', "Failed to paste week routine configuration.");
+      [day]: {
+        ...prev[day],
+        exercises: [...prev[day].exercises, newEx]
       }
-    } else {
-      showToast('info', "No copied workout week config found. Copy a week first!");
-    }
+    }));
+  };
+
+  const handleRemoveExercise = (day, exId) => {
+    setWorkoutSchedule(prev => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        exercises: prev[day].exercises.filter(ex => ex.id !== exId)
+      }
+    }));
+  };
+
+  const handleExerciseChange = (day, exId, field, value) => {
+    setWorkoutSchedule(prev => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        exercises: prev[day].exercises.map(ex => {
+          if (ex.id === exId) {
+            return { ...ex, [field]: value };
+          }
+          return ex;
+        })
+      }
+    }));
   };
 
   const handleSaveWorkout = async (e) => {
     e.preventDefault();
-    
-    // Convert current workoutSchedule object back to database JSON format
-    const dbSchedule = {};
-    Object.keys(workoutSchedule).forEach(day => {
-      const data = workoutSchedule[day];
-      if (data.isRestDay) {
-        dbSchedule[day] = "Rest";
-      } else {
-        dbSchedule[day] = {
-          name: data.name,
-          muscleGroup: data.muscleGroup,
-          notes: data.notes,
-          isRestDay: false
-        };
-      }
-    });
-
     try {
       if (workout) {
-        await dbUpdate('workouts', workout.id, {
-          planName: workoutPlanName,
-          difficulty: workoutDifficulty,
-          schedule: dbSchedule
-        });
+        await dbUpdate('workouts', workout.id, { schedule: workoutSchedule });
       } else {
-        const id = `W-${memberId}`;
         await dbCreate('workouts', {
-          id,
+          id: `W-${memberId}`,
           memberId,
-          planName: workoutPlanName,
-          difficulty: workoutDifficulty,
-          schedule: dbSchedule
+          schedule: workoutSchedule
         });
       }
-      showToast('success', "Workout plan split updated successfully!");
+      showToast('success', "Workout weekly split split saved successfully!");
       loadProfileData();
-    } catch (err) {
-      console.error(err);
-      showToast('error', "Failed to save workout split plan.");
+    } catch(err) {
+      showToast('error', "Failed to save weekly split.");
     }
   };
 
-  // Diet section actions
-  const handleDietCaloriesChange = (calories) => {
-    const c = Number(calories) || 2000;
-    const macros = calculateMacros(c, member?.fitnessGoal || 'General Fitness');
-    setDietForm(prev => ({
-      ...prev,
-      targetCalories: c,
-      targetProtein: macros.protein,
-      targetCarbs: macros.carbs,
-      targetFats: macros.fats
-    }));
-  };
-
+  // Diet Save
   const handleSaveDiet = async (e) => {
     e.preventDefault();
     try {
       if (diet) {
         await dbUpdate('dietPlans', diet.id, dietForm);
       } else {
-        const id = `D-${memberId}`;
-        await dbCreate('dietPlans', { id, memberId, ...dietForm });
+        await dbCreate('dietPlans', {
+          id: `D-${memberId}`,
+          memberId,
+          ...dietForm
+        });
       }
-      showToast('success', "Nutrition and diet cards saved successfully!");
+      showToast('success', "Nutrition and Diet Plan reference sheet saved!");
       loadProfileData();
     } catch (err) {
-      console.error(err);
-      showToast('error', "Failed to save diet plan.");
+      showToast('error', "Failed to save Diet Plan.");
     }
   };
 
-  // Progress actions
+  // Progress Log Record
   const handleSaveProgressLog = async (e) => {
     e.preventDefault();
     try {
       const logId = `PROG-${memberId}-${Math.floor(1000 + Math.random() * 9000)}`;
-      const logData = {
+      await dbCreate('progress', {
         id: logId,
         memberId,
         date: newLog.date,
-        weight: newLog.weight ? Number(newLog.weight) : null,
-        chest: newLog.chest ? Number(newLog.chest) : null,
-        waist: newLog.waist ? Number(newLog.waist) : null,
-        hips: newLog.hips ? Number(newLog.hips) : null,
-        biceps: newLog.biceps ? Number(newLog.biceps) : null,
-        thighs: newLog.thighs ? Number(newLog.thighs) : null,
-        bodyFat: newLog.bodyFat ? Number(newLog.bodyFat) : null
-      };
+        weight: Number(newLog.weight),
+        bodyFat: Number(newLog.bodyFat) || 0,
+        chest: Number(newLog.chest) || 0,
+        waist: Number(newLog.waist) || 0,
+        arms: Number(newLog.arms) || 0,
+        thighs: Number(newLog.thighs) || 0,
+        notes: newLog.notes
+      });
 
-      await dbCreate('progress', logData);
-      
-      // Also update the member's current weight in the members table!
-      if (newLog.weight) {
-        await dbUpdate('members', memberId, { weight: Number(newLog.weight) });
-      }
-
-      showToast('success', "Body progress measurement logged successfully!");
+      // Update current member weight
+      await dbUpdate('members', memberId, { weight: Number(newLog.weight) });
+      showToast('success', "Progress check-in logged!");
       setNewLog({
         date: new Date().toISOString().split('T')[0],
-        weight: '', chest: '', waist: '', hips: '', biceps: '', thighs: '', bodyFat: ''
+        weight: '', bodyFat: '', chest: '', waist: '', arms: '', thighs: '', notes: ''
       });
       loadProfileData();
       window.dispatchEvent(new Event('db-change'));
-    } catch (err) {
-      console.error(err);
-      showToast('error', "Failed to record progress log.");
+    } catch(err) {
+      showToast('error', "Failed to save progress log.");
     }
   };
 
-  // Payments log
-  const handlePlanChange = (planName) => {
-    const selectedPlanObj = gymSettings?.membershipPlans?.find(p => p.name === planName);
-    const price = selectedPlanObj ? selectedPlanObj.price : '';
-    const duration = selectedPlanObj ? selectedPlanObj.duration : 1;
-
-    const payDate = new Date(paymentForm.paymentDate);
-    payDate.setMonth(payDate.getMonth() + duration);
-    const dueDateStr = payDate.toISOString().split('T')[0];
-
-    setPaymentForm(prev => ({
-      ...prev,
-      planType: planName,
-      amount: price,
-      dueDate: dueDateStr
-    }));
-  };
-
+  // Record manual bookkeeping payment
   const handleRecordPayment = async (e) => {
     e.preventDefault();
     try {
-      const payId = `PAY-${memberId}-${Math.floor(1000 + Math.random() * 9000)}`;
-      const paymentData = {
-        id: payId,
+      const planPrice = gymSettings?.membershipPlans?.find(p => p.name === member.membershipPlan)?.price || 2000;
+      const duration = gymSettings?.membershipPlans?.find(p => p.name === member.membershipPlan)?.duration || 1;
+
+      const due = new Date(paymentForm.paymentDate);
+      due.setMonth(due.getMonth() + duration);
+      const dueDateStr = due.toISOString().split('T')[0];
+
+      await dbCreate('payments', {
+        id: `PAY-${memberId}-${Math.floor(1000 + Math.random() * 9000)}`,
         memberId,
-        planType: paymentForm.planType,
-        amount: Number(paymentForm.amount) || 0,
+        planType: member.membershipPlan,
+        amount: Number(paymentForm.amount),
         paymentDate: paymentForm.paymentDate,
-        dueDate: paymentForm.dueDate,
-        status: paymentForm.status,
-        transactionId: paymentForm.transactionId
-      };
-
-      await dbCreate('payments', paymentData);
-
-      await dbUpdate('members', memberId, { 
-        membershipPlan: paymentForm.planType,
-        status: 'active'
+        dueDate: dueDateStr,
+        status: 'paid',
+        transactionId: `${paymentForm.method.toUpperCase()}-BOOK`
       });
 
-      // System notification
-      const notifId = `NOTIF-${memberId}-${Math.floor(1000 + Math.random() * 9000)}`;
-      await dbCreate('notifications', {
-        id: notifId,
-        memberId: memberId,
-        title: "Payment Logged Successfully",
-        message: `Plan ${paymentForm.planType} payment of ₹${paymentForm.amount.toLocaleString()} received.`,
-        type: "fee",
-        date: new Date().toISOString().split('T')[0],
-        read: false
-      });
-
-      showToast('success', "Fee payment logged and plan active!");
+      await dbUpdate('members', memberId, { status: 'active' });
+      showToast('success', "Payment transaction recorded successfully!");
       setShowPaymentModal(false);
-      
       setPaymentForm({
         paymentDate: new Date().toISOString().split('T')[0],
-        planType: '',
         amount: '',
-        status: 'paid',
-        transactionId: '',
-        dueDate: ''
+        method: 'UPI',
+        remarks: 'Subscription Fee'
       });
-
       loadProfileData();
       window.dispatchEvent(new Event('db-change'));
     } catch (err) {
-      console.error(err);
-      showToast('error', "Failed to log payment.");
-    }
-  };
-
-  const handleMarkPaymentPaid = async (paymentId) => {
-    try {
-      await dbUpdate('payments', paymentId, { status: 'paid' });
-      await dbUpdate('members', memberId, { status: 'active' });
-      showToast('success', "Payment status marked as PAID!");
-      loadProfileData();
-      window.dispatchEvent(new Event('db-change'));
-    } catch (e) {
-      showToast('error', "Failed to update payment status.");
+      showToast('error', "Failed to record payment.");
     }
   };
 
   if (!member) {
-    return <div className="card-glass text-center" style={{ padding: '3rem' }}>Loading Member Profile...</div>;
+    return <div className="card-glass text-center" style={{ padding: '3rem' }}>Loading Member Profile Details...</div>;
   }
 
-  // 1. LAZY RENDER TABS CONTENT
+  // Attendance metrics calculations
+  const totalAtt = attendance.length;
+  const presentDays = attendance.filter(a => a.status === 'present').length;
+  const lateEntries = attendance.filter(a => a.status === 'late').length;
+  const absentDays = attendance.filter(a => a.status === 'absent').length;
+  const attendancePct = totalAtt > 0 ? Math.round(((presentDays + lateEntries) / totalAtt) * 100) : 0;
+
+  // Render Tabs Content
   const renderProfileTab = () => (
     <div className="tab-panel-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
       
-      {/* Contact info card */}
-      <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-        <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Member Contact Info</h3>
-        <div className="profile-details-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', fontSize: '0.95rem' }}>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Member ID:</span> <strong>{member.id}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Mobile Number:</span> <strong>{member.mobileNumber}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Email Address:</span> <strong>{member.email}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Home Address:</span> <strong>{member.address || '--'}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Emergency Contact:</span> <strong>{member.emergencyContact}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Join Date:</span> <strong>{member.joinDate}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Membership Plan:</span> <strong>{member.membershipPlan}</strong></div>
+      {/* Basic Contact details */}
+      <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+        <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Basic & Contact Details</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', fontSize: '0.9rem' }}>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Member ID:</span> <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{member.id}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Full Name:</span> <strong style={{ color: '#fff' }}>{member.fullName}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Mobile Number:</span> <strong style={{ color: '#fff' }}>{member.mobileNumber}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Email Address:</span> <strong style={{ color: '#fff' }}>{member.email || '--'}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Home Address:</span> <strong style={{ color: '#fff' }}>{member.address || '--'}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Date of Birth:</span> <strong style={{ color: '#fff' }}>{member.dob || '--'}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Emergency Contact:</span> <strong style={{ color: '#fff' }}>{member.emergencyContact}</strong></div>
         </div>
       </div>
 
-      {/* Fitness and health measurements */}
-      <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-        <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.2rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Fitness & Medical Logs</h3>
-        <div className="profile-details-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', fontSize: '0.95rem', marginBottom: '1rem' }}>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Age / Gender:</span> <strong>{member.age || '--'} / {member.gender}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Height / Weight:</span> <strong>{member.height ? `${member.height} cm` : '--'} / {member.weight ? `${member.weight} kg` : '--'}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Blood Group:</span> <strong>{member.bloodGroup || '--'}</strong></div>
-          <div><span style={{ color: 'var(--text-secondary)' }}>Medical Issues:</span> <strong className="text-danger">{member.medicalConditions || 'None reported'}</strong></div>
-        </div>
-        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.8rem', borderRadius: '8px', borderLeft: '3px solid var(--color-primary)' }}>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Trainer Notes:</span>
-          <p style={{ fontSize: '0.9rem', marginTop: '0.2rem', fontStyle: 'italic' }}>{member.trainerNotes || 'No notes added.'}</p>
+      {/* Fitness and Notes */}
+      <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+        <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Fitness & Health Details</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', fontSize: '0.9rem', marginBottom: '1rem' }}>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Age / Gender:</span> <strong style={{ color: '#fff' }}>{member.dob ? `${new Date().getFullYear() - new Date(member.dob).getFullYear()} Years` : '--'} / {member.gender}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Height / Weight:</span> <strong style={{ color: '#fff' }}>{member.height ? `${member.height} cm` : '--'} / {member.weight ? `${member.weight} kg` : '--'}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Blood Group:</span> <strong style={{ color: '#fff' }}>{member.bloodGroup || '--'}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Medical Conditions:</span> <strong style={{ color: '#EF4444' }}>{member.medicalConditions || 'None'}</strong></div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Trainer Notes:</span> <p style={{ fontStyle: 'italic', marginTop: '4px', color: 'var(--text-secondary)' }}>{member.trainerNotes || 'No notes added.'}</p></div>
         </div>
       </div>
 
-      {/* PT Tracker card inside profile if member has PT */}
-      {member.isPT ? (
-        <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.2rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Award size={18} style={{ color: 'var(--color-primary)' }} />
-            <span>PT Session Tracker</span>
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(99, 102, 241, 0.05)', padding: '0.8rem', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.1)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>Schedule Timing:</span>
-              <strong style={{ color: '#fff' }}>{member.ptSchedule || 'Not Assigned'}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginTop: '4px' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>PT Fees:</span>
-              <strong style={{ color: 'var(--color-primary)' }}>₹{(Number(member.ptFees) || 0).toLocaleString()}</strong>
-            </div>
+      {/* Membership and actions */}
+      <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.1rem' }}>Membership Details</h3>
+        </div>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.9rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', padding: '0.75rem', borderRadius: '8px' }}>
+          <div><span style={{ color: 'var(--text-secondary)' }}>Plan:</span> <strong style={{ color: '#fff' }}>{member.membershipPlan}</strong></div>
+          <div>
+            <span style={{ color: 'var(--text-secondary)' }}>Status:</span> 
+            <span className={`badge ${member.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ marginLeft: '6px' }}>
+              {member.status.toUpperCase()}
+            </span>
           </div>
+          <div><span style={{ color: 'var(--text-secondary)' }}>PT Client:</span> <strong style={{ color: '#fff' }}>{member.isPT ? 'Yes' : 'No'}</strong></div>
+          {member.isPT && (
+            <div><span style={{ color: 'var(--text-secondary)' }}>PT Schedule:</span> <strong style={{ color: '#fff' }}>{member.ptSchedule}</strong></div>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
+          <button className="btn-primary" onClick={handleRenewMembership}>Renew Membership</button>
           
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Sessions Logged:</span>
-            <strong style={{ fontSize: '1.15rem' }}>{member.ptSessionsCompleted} / {member.ptSessionsTotal}</strong>
-          </div>
-
-          <div style={{ height: '8px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-            <div style={{ width: `${Math.min((Number(member.ptSessionsCompleted)/Number(member.ptSessionsTotal))*100, 100)}%`, height: '100%', background: 'var(--color-primary)' }}></div>
-          </div>
-
-          {Number(member.ptSessionsCompleted) >= Number(member.ptSessionsTotal) ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10B981', color: '#10B981', padding: '0.5rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600 }}>
-              <span>🏆 PT Package Completed</span>
-            </div>
-          ) : null}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-            <button className="btn-primary" onClick={handleMarkPTComplete} disabled={Number(member.ptSessionsCompleted) >= Number(member.ptSessionsTotal)} style={{ width: '100%', minHeight: '40px' }}>
-              Mark PT Complete
-            </button>
-            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
-              <button type="button" className="btn-secondary" onClick={() => {
-                setPtForm({
-                  isPT: true,
-                  ptFees: member.ptFees || '',
-                  ptSchedule: member.ptSchedule || '',
-                  ptSessionsTotal: member.ptSessionsTotal || 10,
-                  ptSessionsCompleted: member.ptSessionsCompleted || 0
-                });
-                setShowPTForm(true);
-              }} style={{ flex: 1, minHeight: '40px', fontSize: '0.85rem' }}>
-                Edit PT Info
-              </button>
-              <button type="button" className="btn-secondary" onClick={handleResetPTCounter} style={{ flex: 1, minHeight: '40px', fontSize: '0.85rem' }}>
-                Reset Pack
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="card-glass text-center" style={{ padding: '1.5rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.8rem' }}>
-          <QRCodeSVG value={member.id} size={150} level="H" />
-          <strong style={{ fontSize: '1.1rem', letterSpacing: '2px', fontFamily: 'monospace' }}>{member.id}</strong>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Check-in QR Code</span>
-          <button type="button" className="btn-secondary" onClick={() => {
+          <button className="btn-secondary" onClick={() => {
             setPtForm({
-              isPT: false,
-              ptFees: '',
-              ptSchedule: '',
-              ptSessionsTotal: 10,
-              ptSessionsCompleted: 0
+              isPT: member.isPT || false,
+              ptSessionsPerWeek: member.ptSessionsPerWeek || 3,
+              ptFees: member.ptFees || 5000,
+              ptStartDate: member.ptStartDate || new Date().toISOString().split('T')[0],
+              ptSchedule: member.ptSchedule || '',
+              ptSessionsCompleted: member.ptSessionsCompleted || 0,
+              ptSessionsTotal: member.ptSessionsTotal || 12
             });
             setShowPTForm(true);
-          }} style={{ marginTop: '0.5rem', width: '100%', minHeight: '40px', fontSize: '0.85rem' }}>
-            Enroll in PT
+          }}>
+            {member.isPT ? 'Configure PT Pack' : 'Enroll in PT'}
+          </button>
+
+          <button className="btn-secondary" onClick={handleDeactivateMember} style={{ color: '#EF4444', borderColor: 'rgba(239,68,68,0.2)' }}>
+            {member.status === 'active' ? 'Deactivate Member' : 'Activate Member'}
           </button>
         </div>
-      )}
+      </div>
 
     </div>
   );
 
   const renderWorkoutTab = () => (
-    <div className="workout-planner card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-      
-      {/* Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '1rem' }}>
+    <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
         <div>
-          <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 600 }}>Client Workout Planner</h3>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Customize individual days or apply workout split templates.</span>
-        </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button type="button" className="btn-secondary" onClick={handleCopyWeek} style={{ display: 'flex', alignItems: 'center', gap: '4px', minHeight: '38px', padding: '0 1rem' }}>
-            <Copy size={15} />
-            <span style={{ fontSize: '0.8rem' }}>Copy Week</span>
-          </button>
-          <button type="button" className="btn-secondary" onClick={handlePasteWeek} style={{ display: 'flex', alignItems: 'center', gap: '4px', minHeight: '38px', padding: '0 1rem' }}>
-            <Clipboard size={15} />
-            <span style={{ fontSize: '0.8rem' }}>Paste Week</span>
-          </button>
-          <select 
-            value={selectedTemplate}
-            onChange={(e) => handleApplyTemplate(e.target.value)}
-            style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', color: '#fff', padding: '0.4rem', borderRadius: '6px', height: '38px' }}
-          >
-            <option value="">Apply Split template...</option>
-            {workoutTemplates.map(t => (
-              <option key={t.id} value={t.id}>{t.name} ({t.difficulty})</option>
-            ))}
-          </select>
+          <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.15rem' }}>Workout Split Reference</h3>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Manage exercises, sets, reps, and target loads.</span>
         </div>
       </div>
 
-      <form onSubmit={handleSaveWorkout}>
-        <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-          <div className="form-group">
-            <label>Plan Name</label>
-            <input type="text" required value={workoutPlanName} onChange={(e) => setWorkoutPlanName(e.target.value)} placeholder="e.g. Muscle Gain Spli" />
+      <form onSubmit={handleSaveWorkout} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        
+        {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
+          const split = workoutSchedule[day] || { isRestDay: false, exercises: [] };
+
+          return (
+            <div key={day} className="card-glass" style={{ padding: '1rem', borderRadius: '12px', borderLeft: split.isRestDay ? '4px solid var(--text-muted)' : '4px solid var(--color-primary)' }}>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h4 style={{ fontWeight: 700, color: '#fff', fontSize: '1rem' }}>{day}</h4>
+                
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={split.isRestDay} 
+                    onChange={(e) => {
+                      const val = e.target.checked;
+                      setWorkoutSchedule(prev => ({
+                        ...prev,
+                        [day]: { ...prev[day], isRestDay: val }
+                      }));
+                    }}
+                    style={{ width: '16px', height: '16px' }}
+                  />
+                  <span>Rest Day</span>
+                </label>
+              </div>
+
+              {!split.isRestDay ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  
+                  {/* Exercises List table/inputs */}
+                  {split.exercises.map((ex, idx) => (
+                    <div key={ex.id || idx} style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr 1.5fr 3fr auto', gap: '8px', alignItems: 'center' }} className="mobile-column-grid">
+                      <input 
+                        type="text" 
+                        placeholder="Exercise Name" 
+                        value={ex.name} 
+                        onChange={(e) => handleExerciseChange(day, ex.id, 'name', e.target.value)} 
+                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
+                      />
+                      <input 
+                        type="number" 
+                        placeholder="Sets" 
+                        value={ex.sets} 
+                        onChange={(e) => handleExerciseChange(day, ex.id, 'sets', Number(e.target.value))} 
+                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
+                      />
+                      <input 
+                        type="text" 
+                        placeholder="Reps" 
+                        value={ex.reps} 
+                        onChange={(e) => handleExerciseChange(day, ex.id, 'reps', e.target.value)} 
+                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
+                      />
+                      <input 
+                        type="number" 
+                        placeholder="Weight (kg)" 
+                        value={ex.weight} 
+                        onChange={(e) => handleExerciseChange(day, ex.id, 'weight', Number(e.target.value))} 
+                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
+                      />
+                      <input 
+                        type="text" 
+                        placeholder="Coaching notes (e.g. Flat Bench)" 
+                        value={ex.notes} 
+                        onChange={(e) => handleExerciseChange(day, ex.id, 'notes', e.target.value)} 
+                        style={{ height: '36px', minHeight: '36px', fontSize: '0.85rem', padding: '0 0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px' }}
+                      />
+                      <button type="button" className="btn-icon" onClick={() => handleRemoveExercise(day, ex.id)} style={{ color: '#EF4444' }}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+
+                  <button type="button" className="btn-secondary" onClick={() => handleAddExercise(day)} style={{ alignSelf: 'flex-start', padding: '0.35rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' }}>
+                    <Plus size={14} />
+                    <span>Add Exercise</span>
+                  </button>
+
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '0.5rem 0' }}>💤 Rest day split. No exercises assigned.</div>
+              )}
+
+            </div>
+          );
+        })}
+
+        <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-end', padding: '0.6rem 2rem' }}>
+          Save Weekly Split
+        </button>
+
+      </form>
+    </div>
+  );
+
+  const renderDietTab = () => (
+    <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+      <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.15rem', marginBottom: '0.4rem' }}>Diet & Nutrition Reference</h3>
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Manage macro goals, meal components, and supplements.</span>
+
+      <form onSubmit={handleSaveDiet} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
+        
+        {/* Macros split cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.8rem' }}>
+          
+          <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #8B5CF6', background: 'rgba(139,92,246,0.02)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>CALORIES</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
+              <input 
+                type="number" 
+                value={dietForm.calories} 
+                onChange={(e) => setDietForm({ ...dietForm, calories: Number(e.target.value) })}
+                style={{ background: 'none', border: 'none', fontSize: '1.35rem', fontWeight: 700, color: '#fff', width: '80px', padding: 0, minHeight: 'auto' }} 
+              />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>kcal</span>
+            </div>
           </div>
-          <div className="form-group">
-            <label>Difficulty</label>
-            <select value={workoutDifficulty} onChange={(e) => setWorkoutDifficulty(e.target.value)}>
-              <option value="Beginner">Beginner</option>
-              <option value="Intermediate">Intermediate</option>
-              <option value="Advanced">Advanced</option>
-            </select>
+
+          <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #10B981', background: 'rgba(16,185,129,0.02)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>PROTEIN</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
+              <input 
+                type="number" 
+                value={dietForm.protein} 
+                onChange={(e) => setDietForm({ ...dietForm, protein: Number(e.target.value) })}
+                style={{ background: 'none', border: 'none', fontSize: '1.35rem', fontWeight: 700, color: '#fff', width: '60px', padding: 0, minHeight: 'auto' }} 
+              />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>g</span>
+            </div>
           </div>
+
+          <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #F59E0B', background: 'rgba(245,158,11,0.02)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>CARBS</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
+              <input 
+                type="number" 
+                value={dietForm.carbs} 
+                onChange={(e) => setDietForm({ ...dietForm, carbs: Number(e.target.value) })}
+                style={{ background: 'none', border: 'none', fontSize: '1.35rem', fontWeight: 700, color: '#fff', width: '60px', padding: 0, minHeight: 'auto' }} 
+              />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>g</span>
+            </div>
+          </div>
+
+          <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #EF4444', background: 'rgba(239,68,68,0.02)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>FAT</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
+              <input 
+                type="number" 
+                value={dietForm.fat} 
+                onChange={(e) => setDietForm({ ...dietForm, fat: Number(e.target.value) })}
+                style={{ background: 'none', border: 'none', fontSize: '1.35rem', fontWeight: 700, color: '#fff', width: '60px', padding: 0, minHeight: 'auto' }} 
+              />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>g</span>
+            </div>
+          </div>
+
+          <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #3B82F6', background: 'rgba(59,130,246,0.02)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>WATER INTAKE</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
+              <input 
+                type="number" 
+                value={dietForm.waterIntake} 
+                onChange={(e) => setDietForm({ ...dietForm, waterIntake: Number(e.target.value) })}
+                style={{ background: 'none', border: 'none', fontSize: '1.35rem', fontWeight: 700, color: '#fff', width: '70px', padding: 0, minHeight: 'auto' }} 
+              />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>ml</span>
+            </div>
+          </div>
+
         </div>
 
-        {/* 7 Day Workout cards */}
-        <div className="workout-cards-list" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day, idx) => {
-            const data = workoutSchedule[day] || { name: '', muscleGroup: '', notes: '', isRestDay: false };
-            const prevDay = idx > 0 ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][idx - 1] : 'Sunday';
-            
-            return (
-              <div key={day} className="card-glass" style={{ padding: '1rem', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '10px', borderLeft: data.isRestDay ? '4px solid var(--text-muted)' : '4px solid var(--color-primary)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h4 style={{ fontWeight: 700, color: data.isRestDay ? 'var(--text-secondary)' : '#fff' }}>{day}</h4>
-                  
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button type="button" className="btn-text" onClick={() => handleDuplicateDay(day, prevDay)} style={{ fontSize: '0.75rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                      <Copy size={12} />
-                      <span>Duplicate {prevDay}</span>
-                    </button>
-                    
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', userSelect: 'none' }}>
-                      <input 
-                        type="checkbox" 
-                        checked={data.isRestDay} 
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setWorkoutSchedule(prev => ({
-                            ...prev,
-                            [day]: { ...prev[day], isRestDay: val }
-                          }));
-                        }}
-                      />
-                      <span>Rest Day</span>
-                    </label>
-                  </div>
-                </div>
+        {/* Meal split grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+          {['Breakfast', 'Lunch', 'Snack', 'Dinner'].map(meal => {
+            const mealData = dietForm.meals[meal] || { food: '', quantity: '', notes: '' };
 
-                {!data.isRestDay ? (
-                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem' }}>Workout Name / Focus</label>
-                      <input 
-                        type="text" 
-                        required 
-                        placeholder="e.g. Chest Press, Inclines" 
-                        value={data.name} 
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setWorkoutSchedule(prev => ({
-                            ...prev,
-                            [day]: { ...prev[day], name: val }
-                          }));
-                        }} 
-                        style={{ minHeight: '40px', padding: '0.5rem 0.8rem' }}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem' }}>Muscle Groups Targeted</label>
-                      <input 
-                        type="text" 
-                        placeholder="e.g. Chest, Triceps" 
-                        value={data.muscleGroup} 
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setWorkoutSchedule(prev => ({
-                            ...prev,
-                            [day]: { ...prev[day], muscleGroup: val }
-                          }));
-                        }} 
-                        style={{ minHeight: '40px', padding: '0.5rem 0.8rem' }}
-                      />
-                    </div>
-                    <div className="form-group colspan-2" style={{ gridColumn: 'span 2' }}>
-                      <label style={{ fontSize: '0.75rem' }}>Workout Coaching Notes</label>
-                      <input 
-                        type="text" 
-                        placeholder="Sets, reps, rest details..." 
-                        value={data.notes} 
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setWorkoutSchedule(prev => ({
-                            ...prev,
-                            [day]: { ...prev[day], notes: val }
-                          }));
-                        }} 
-                        style={{ minHeight: '40px', padding: '0.5rem 0.8rem' }}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ padding: '0.5rem', background: 'rgba(255,255,255,0.01)', borderRadius: '6px', color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                    💤 Scheduled Rest Day.
-                  </div>
-                )}
+            return (
+              <div key={meal} className="card-glass" style={{ padding: '1rem', borderRadius: '12px' }}>
+                <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-primary)', marginBottom: '0.8rem' }}>{meal}</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Food items (e.g. Oatmeal & Eggs)" 
+                    value={mealData.food} 
+                    onChange={(e) => setDietForm({
+                      ...dietForm,
+                      meals: {
+                        ...dietForm.meals,
+                        [meal]: { ...mealData, food: e.target.value }
+                      }
+                    })}
+                    style={{ height: '36px', padding: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Quantity (e.g. 50g oats, 4 egg whites)" 
+                    value={mealData.quantity} 
+                    onChange={(e) => setDietForm({
+                      ...dietForm,
+                      meals: {
+                        ...dietForm.meals,
+                        [meal]: { ...mealData, quantity: e.target.value }
+                      }
+                    })}
+                    style={{ height: '36px', padding: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Meal specific notes" 
+                    value={mealData.notes} 
+                    onChange={(e) => setDietForm({
+                      ...dietForm,
+                      meals: {
+                        ...dietForm.meals,
+                        [meal]: { ...mealData, notes: e.target.value }
+                      }
+                    })}
+                    style={{ height: '36px', padding: '0.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', fontSize: '0.85rem' }}
+                  />
+                </div>
               </div>
             );
           })}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-          <button type="submit" className="btn-primary" style={{ padding: '0.6rem 2rem' }}>
-            <Check size={18} style={{ marginRight: '6px' }} />
-            <span>Save Workout Schedule</span>
-          </button>
-        </div>
-
-      </form>
-
-    </div>
-  );
-
-  const renderDietTab = () => (
-    <div className="diet-planner card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-      <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.4rem' }}>Nutrition Plan</h3>
-      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Define daily macro targets and input meal details.</span>
-      
-      <form onSubmit={handleSaveDiet} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
-        
-        {/* Macro targets progress cards */}
-        <div>
-          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.8rem' }}>Target Macronutrients Split</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.8rem' }}>
-            
-            <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #FF2A5F', background: 'rgba(255, 42, 95, 0.03)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>CALORIES</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
-                <input 
-                  type="number" 
-                  value={dietForm.targetCalories} 
-                  onChange={(e) => handleDietCaloriesChange(e.target.value)} 
-                  style={{ background: 'none', border: 'none', fontSize: '1.25rem', fontWeight: 700, color: '#fff', width: '80px', padding: 0, minHeight: 'auto' }} 
-                />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>kcal</span>
-              </div>
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #6366F1', background: 'rgba(99, 102, 241, 0.03)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>PROTEIN</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
-                <input 
-                  type="number" 
-                  value={dietForm.targetProtein} 
-                  onChange={(e) => setDietForm({ ...dietForm, targetProtein: Number(e.target.value) })} 
-                  style={{ background: 'none', border: 'none', fontSize: '1.25rem', fontWeight: 700, color: '#fff', width: '60px', padding: 0, minHeight: 'auto' }} 
-                />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>g</span>
-              </div>
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #F59E0B', background: 'rgba(245, 158, 11, 0.03)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>CARBS</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
-                <input 
-                  type="number" 
-                  value={dietForm.targetCarbs} 
-                  onChange={(e) => setDietForm({ ...dietForm, targetCarbs: Number(e.target.value) })} 
-                  style={{ background: 'none', border: 'none', fontSize: '1.25rem', fontWeight: 700, color: '#fff', width: '60px', padding: 0, minHeight: 'auto' }} 
-                />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>g</span>
-              </div>
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderLeft: '4px solid #10B981', background: 'rgba(16, 185, 129, 0.03)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>FATS</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '4px' }}>
-                <input 
-                  type="number" 
-                  value={dietForm.targetFats} 
-                  onChange={(e) => setDietForm({ ...dietForm, targetFats: Number(e.target.value) })} 
-                  style={{ background: 'none', border: 'none', fontSize: '1.25rem', fontWeight: 700, color: '#fff', width: '60px', padding: 0, minHeight: 'auto' }} 
-                />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>g</span>
-              </div>
-            </div>
-
+        {/* Supplements & Diet Notes */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }} className="mobile-column-grid">
+          <div className="form-group">
+            <label>Supplements Checklist</label>
+            <input 
+              type="text" 
+              placeholder="e.g. Creatine, Whey Protein, Fish Oil, Vitamin D" 
+              value={dietForm.supplements} 
+              onChange={(e) => setDietForm({ ...dietForm, supplements: e.target.value })}
+              style={{ minHeight: '44px' }}
+            />
+          </div>
+          <div className="form-group">
+            <label>Diet Split Notes</label>
+            <textarea 
+              rows="2" 
+              placeholder="Free text instructions..." 
+              value={dietForm.notes} 
+              onChange={(e) => setDietForm({ ...dietForm, notes: e.target.value })}
+            />
           </div>
         </div>
 
-        {/* Meal cards grid */}
-        <div>
-          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.8rem' }}>Daily Meals & Supplements</h4>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-            
-            <div className="card-glass" style={{ padding: '1rem', borderRadius: '10px' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                🍳 Breakfast
-              </div>
-              <textarea 
-                rows="2" 
-                placeholder="Eggs, toast, oatmeal details..." 
-                value={dietForm.meals.Breakfast} 
-                onChange={(e) => setDietForm({ ...dietForm, meals: { ...dietForm.meals, Breakfast: e.target.value } })}
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', width: '100%', padding: '0.5rem' }}
-              ></textarea>
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderRadius: '10px' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                🍗 Lunch
-              </div>
-              <textarea 
-                rows="2" 
-                placeholder="Chicken, rice, broccoli..." 
-                value={dietForm.meals.Lunch} 
-                onChange={(e) => setDietForm({ ...dietForm, meals: { ...dietForm.meals, Lunch: e.target.value } })}
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', width: '100%', padding: '0.5rem' }}
-              ></textarea>
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderRadius: '10px' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                🍌 Snack
-              </div>
-              <textarea 
-                rows="2" 
-                placeholder="Protein shake, fruit, almonds..." 
-                value={dietForm.meals.Snack} 
-                onChange={(e) => setDietForm({ ...dietForm, meals: { ...dietForm.meals, Snack: e.target.value } })}
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', width: '100%', padding: '0.5rem' }}
-              ></textarea>
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderRadius: '10px' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                🥗 Dinner
-              </div>
-              <textarea 
-                rows="2" 
-                placeholder="Salmon, sweet potatoes, salad..." 
-                value={dietForm.meals.Dinner} 
-                onChange={(e) => setDietForm({ ...dietForm, meals: { ...dietForm.meals, Dinner: e.target.value } })}
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', width: '100%', padding: '0.5rem' }}
-              ></textarea>
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderRadius: '10px', borderLeft: '4px solid #3B82F6' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#3B82F6', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                <Droplet size={16} /> Water Intake (ml)
-              </div>
-              <input 
-                type="number" 
-                placeholder="2500" 
-                value={dietForm.waterIntake} 
-                onChange={(e) => setDietForm({ ...dietForm, waterIntake: Number(e.target.value) })}
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', width: '100%', padding: '0.5rem', minHeight: '40px' }}
-              />
-            </div>
-
-            <div className="card-glass" style={{ padding: '1rem', borderRadius: '10px', borderLeft: '4px solid #8B5CF6' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#8B5CF6', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                💊 Supplements
-              </div>
-              <textarea 
-                rows="1" 
-                placeholder="Creatine, Whey Protein, Multivitamin..." 
-                value={dietForm.supplements} 
-                onChange={(e) => setDietForm({ ...dietForm, supplements: e.target.value })}
-                style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '6px', width: '100%', padding: '0.5rem' }}
-              ></textarea>
-            </div>
-
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-          <button type="submit" className="btn-primary" style={{ padding: '0.6rem 2rem' }}>
-            <Check size={18} style={{ marginRight: '6px' }} />
-            <span>Save Nutrition Card</span>
-          </button>
-        </div>
+        <button type="submit" className="btn-primary" style={{ alignSelf: 'flex-end', padding: '0.6rem 2rem' }}>
+          Save Diet Split
+        </button>
 
       </form>
     </div>
   );
 
   const renderProgressTab = () => {
-    // Compile chart variables
-    const labels = progressLogs.map(l => l.date);
-    const weights = progressLogs.map(l => l.weight);
-    const fatPercent = progressLogs.map(l => l.bodyFat);
+    // Compile weights trend
+    const sortedLogs = [...progressLogs].sort((a,b) => new Date(a.date) - new Date(b.date));
+    const labels = sortedLogs.map(l => l.date);
+    const weights = sortedLogs.map(l => l.weight);
+    const fatPct = sortedLogs.map(l => l.bodyFat);
 
     const chartData = {
       labels,
@@ -941,17 +771,17 @@ export default function MemberProfileView({ memberId, onBack }) {
         {
           label: 'Weight (kg)',
           data: weights,
-          borderColor: '#FF2A5F',
-          backgroundColor: 'rgba(255, 42, 95, 0.1)',
-          tension: 0.3,
+          borderColor: '#8B5CF6',
+          backgroundColor: 'rgba(139, 92, 246, 0.05)',
+          tension: 0.4,
           fill: true
         },
         {
           label: 'Body Fat (%)',
-          data: fatPercent,
-          borderColor: '#6366F1',
-          backgroundColor: 'rgba(99, 102, 241, 0.1)',
-          tension: 0.3,
+          data: fatPct,
+          borderColor: '#EF4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.05)',
+          tension: 0.4,
           fill: true
         }
       ]
@@ -960,23 +790,25 @@ export default function MemberProfileView({ memberId, onBack }) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         
-        {/* Log measurements form & photo comparisons */}
+        {/* Form measurements details */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
           
-          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-            <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Log Body Measurements</h3>
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+            <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Record Transformation Progress</h3>
+            
             <form onSubmit={handleSaveProgressLog} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
                 <div className="form-group">
-                  <label>Log Date</label>
+                  <label>Record Date</label>
                   <input type="date" required value={newLog.date} onChange={(e) => setNewLog({ ...newLog, date: e.target.value })} style={{ minHeight: '40px' }} />
                 </div>
                 <div className="form-group">
-                  <label>Weight (kg)</label>
-                  <input type="number" step="0.01" required value={newLog.weight} onChange={(e) => setNewLog({ ...newLog, weight: e.target.value })} style={{ minHeight: '40px' }} placeholder="e.g. 78" />
+                  <label>Weight (kg) *</label>
+                  <input type="number" step="0.1" required value={newLog.weight} onChange={(e) => setNewLog({ ...newLog, weight: e.target.value })} placeholder="72" style={{ minHeight: '40px' }} />
                 </div>
               </div>
-              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem' }}>
+
+              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                 <div className="form-group">
                   <label>Chest (cm)</label>
                   <input type="number" step="0.1" value={newLog.chest} onChange={(e) => setNewLog({ ...newLog, chest: e.target.value })} style={{ minHeight: '40px' }} />
@@ -986,164 +818,159 @@ export default function MemberProfileView({ memberId, onBack }) {
                   <input type="number" step="0.1" value={newLog.waist} onChange={(e) => setNewLog({ ...newLog, waist: e.target.value })} style={{ minHeight: '40px' }} />
                 </div>
                 <div className="form-group">
-                  <label>Hips (cm)</label>
-                  <input type="number" step="0.1" value={newLog.hips} onChange={(e) => setNewLog({ ...newLog, hips: e.target.value })} style={{ minHeight: '40px' }} />
+                  <label>Body Fat (%)</label>
+                  <input type="number" step="0.1" value={newLog.bodyFat} onChange={(e) => setNewLog({ ...newLog, bodyFat: e.target.value })} placeholder="14" style={{ minHeight: '40px' }} />
                 </div>
               </div>
-              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.6rem' }}>
+
+              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
                 <div className="form-group">
-                  <label>Biceps (cm)</label>
-                  <input type="number" step="0.1" value={newLog.biceps} onChange={(e) => setNewLog({ ...newLog, biceps: e.target.value })} style={{ minHeight: '40px' }} />
+                  <label>Arms (cm)</label>
+                  <input type="number" step="0.1" value={newLog.arms} onChange={(e) => setNewLog({ ...newLog, arms: e.target.value })} style={{ minHeight: '40px' }} />
                 </div>
                 <div className="form-group">
-                  <label>Thighs (cm)</label>
+                  <label>Thigh (cm)</label>
                   <input type="number" step="0.1" value={newLog.thighs} onChange={(e) => setNewLog({ ...newLog, thighs: e.target.value })} style={{ minHeight: '40px' }} />
                 </div>
-                <div className="form-group">
-                  <label>Body Fat (%)</label>
-                  <input type="number" step="0.1" value={newLog.bodyFat} onChange={(e) => setNewLog({ ...newLog, bodyFat: e.target.value })} style={{ minHeight: '40px' }} placeholder="14" />
-                </div>
               </div>
-              <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: '0.5rem' }}>
-                Record Measurements
-              </button>
+
+              <div className="form-group">
+                <label>Progress Notes</label>
+                <input type="text" placeholder="Feels stronger, vascularity improvements..." value={newLog.notes} onChange={(e) => setNewLog({ ...newLog, notes: e.target.value })} style={{ minHeight: '40px' }} />
+              </div>
+
+              <button type="submit" className="btn-primary" style={{ width: '100%' }}>Log Transformation Entry</button>
             </form>
           </div>
 
-          {/* Photo comparisons */}
-          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-            <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Transformation Photos</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', height: 'calc(100% - 40px)', minHeight: '220px' }}>
-              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <img src={progressLogs[0]?.beforePhoto || 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=200&fit=crop'} alt="Before" style={{ width: '100%', height: '80%', objectFit: 'cover' }} />
-                <span style={{ fontSize: '0.75rem', padding: '4px', fontWeight: 600, color: 'var(--text-secondary)' }}>BEFORE PHOTO</span>
+          {/* Transformation progress checklist/summary */}
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Transformation Metrics Overview</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', justifyContent: 'center', flex: 1 }}>
+              <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Starting Weight:</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff' }}>{progressLogs[0]?.weight ? `${progressLogs[0].weight} kg` : '--'}</div>
               </div>
-              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <img src={progressLogs[progressLogs.length - 1]?.afterPhoto || 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=200&fit=crop'} alt="After" style={{ width: '100%', height: '80%', objectFit: 'cover' }} />
-                <span style={{ fontSize: '0.75rem', padding: '4px', fontWeight: 600, color: 'var(--color-primary)' }}>LATEST PROGRESS</span>
+              <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Latest Weight:</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-primary)' }}>{progressLogs[progressLogs.length - 1]?.weight ? `${progressLogs[progressLogs.length - 1].weight} kg` : '--'}</div>
               </div>
             </div>
           </div>
 
         </div>
 
-        {/* Charts log display */}
-        {progressLogs.length > 0 ? (
-          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-            <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem' }}>Progress History Chart</h3>
-            <div style={{ height: '260px', position: 'relative' }}>
-              <Line 
-                data={chartData} 
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  scales: {
-                    y: { beginAtZero: false, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'var(--text-secondary)' } },
-                    x: { grid: { display: false }, ticks: { color: 'var(--text-secondary)' } }
-                  }
-                }}
-              />
+        {/* Charts and measurements timeline */}
+        <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '1.5rem' }} className="mobile-column-grid">
+          
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+            <h4 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1rem', marginBottom: '1rem' }}>Weight & Body Fat Trend</h4>
+            {progressLogs.length > 0 ? (
+              <div style={{ height: '240px', position: 'relative' }}>
+                <Line 
+                  data={chartData} 
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                      y: { beginAtZero: false, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'var(--text-secondary)' } },
+                      x: { grid: { display: false }, ticks: { color: 'var(--text-secondary)' } }
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>Log progress details to display charts.</div>
+            )}
+          </div>
+
+          {/* Measurements timeline grid */}
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column' }}>
+            <h4 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1rem', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>Measurements Log Timeline</h4>
+            <div style={{ flex: 1, maxHeight: '240px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {progressLogs.length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontStyle: 'italic', textAlign: 'center', padding: '2rem' }}>No progress entries logged yet.</div>
+              ) : (
+                [...progressLogs].reverse().map(log => (
+                  <div key={log.id} style={{ padding: '0.6rem 0.8rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <strong>{log.date}</strong>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>W: {log.weight} kg • Fat: {log.bodyFat || '--'}%</span>
+                    </div>
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>C:{log.chest || '--'} W:{log.waist || '--'} A:{log.arms || '--'} T:{log.thighs || '--'}</span>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
-        ) : (
-          <div className="card-glass text-center" style={{ padding: '3rem 1.5rem', borderRadius: '12px' }}>
-            <TrendingUp size={30} style={{ color: 'var(--text-muted)', marginBottom: '8px' }} />
-            <h4 style={{ fontSize: '1rem', fontWeight: 600 }}>No Progression Chart Data</h4>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Log measurement values above to plot the weight transition curve.</span>
-          </div>
-        )}
+
+        </div>
 
       </div>
     );
   };
 
   const renderPaymentsTab = () => {
-    // Find latest active plan details
-    const overduePayments = payments.some(p => p.status === 'overdue');
-    return (
-      <div className="billing-payments-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        
-        {/* Payment Summary Header metrics */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-          
-          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid var(--color-primary)' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>CURRENT ACTIVE PLAN</span>
-            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px', color: '#fff' }}>{member.membershipPlan || 'None'}</h3>
-          </div>
+    // Current totals
+    const planPrice = gymSettings?.membershipPlans?.find(p => p.name === member.membershipPlan)?.price || 2000;
+    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
 
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        
+        {/* Stats card */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid var(--color-primary)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>MEMBERSHIP FEE</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px' }}>₹{planPrice.toLocaleString()}</h3>
+          </div>
           <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid #10B981' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>BILLING DUE DATE</span>
-            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px', color: '#fff', fontFamily: 'monospace' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>TOTAL PAID AMOUNT</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px' }}>₹{totalPaid.toLocaleString()}</h3>
+          </div>
+          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid #F59E0B' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>RENEWAL DUE DATE</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px', fontFamily: 'monospace' }}>
               {payments.length > 0 ? payments.sort((a,b) => new Date(b.dueDate) - new Date(a.dueDate))[0].dueDate : '--'}
             </h3>
           </div>
-
-          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: overduePayments ? '4px solid #EF4444' : '4px solid var(--text-muted)' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>FEE STATUS</span>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '4px', display: 'flex', alignItems: 'center' }}>
-              <span className={`badge ${overduePayments ? 'badge-danger' : 'badge-success'}`} style={{ textTransform: 'uppercase' }}>
-                {overduePayments ? 'OVERDUE DUES' : 'PAID / ACTIVE'}
-              </span>
-            </h3>
-          </div>
-
         </div>
 
-        {/* History table list */}
-        <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
-            <div>
-              <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 600 }}>Billing & Payment Logs</h3>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Review client historical invoices and log pending transactions.</span>
-            </div>
-            <button type="button" className="btn-primary" onClick={() => setShowPaymentModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '4px', minHeight: '38px', padding: '0 1rem' }}>
-              <Plus size={16} />
-              <span style={{ fontSize: '0.8rem' }}>Record Payment</span>
+        {/* Payments history bookkeeping */}
+        <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
+            <h4 style={{ fontSize: '1rem', fontWeight: 600 }}>Payment Ledger History</h4>
+            <button className="btn-primary" onClick={() => setShowPaymentModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '4px', minHeight: '36px', padding: '0 0.8rem', fontSize: '0.8rem' }}>
+              <Plus size={14} />
+              <span>Record Payment</span>
             </button>
           </div>
 
-          {/* Table display */}
           <div className="table-responsive">
             <table className="table-custom" style={{ width: '100%' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)' }}>
-                  <th style={{ padding: '0.8rem' }}>Payment Date</th>
-                  <th style={{ padding: '0.8rem' }}>Plan</th>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.01)' }}>
+                  <th style={{ padding: '0.8rem' }}>Date</th>
                   <th style={{ padding: '0.8rem' }}>Amount</th>
-                  <th style={{ padding: '0.8rem' }}>Next Due</th>
-                  <th style={{ padding: '0.8rem' }}>Status</th>
-                  <th style={{ padding: '0.8rem', textAlign: 'right' }}>Actions</th>
+                  <th style={{ padding: '0.8rem' }}>Method</th>
+                  <th style={{ padding: '0.8rem' }}>Remarks</th>
                 </tr>
               </thead>
               <tbody>
                 {payments.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No payments registered.</td>
+                    <td colSpan="4" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No transactions found in database logs.</td>
                   </tr>
                 ) : (
                   [...payments].sort((a,b) => new Date(b.paymentDate) - new Date(a.paymentDate)).map(pay => (
                     <tr key={pay.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                       <td style={{ padding: '0.8rem', fontFamily: 'monospace' }}>{pay.paymentDate}</td>
-                      <td style={{ padding: '0.8rem', fontWeight: 600, color: '#fff' }}>{pay.planType}</td>
-                      <td style={{ padding: '0.8rem', color: 'var(--color-primary)', fontWeight: 600 }}>₹{pay.amount.toLocaleString()}</td>
-                      <td style={{ padding: '0.8rem', fontFamily: 'monospace' }}>{pay.dueDate}</td>
-                      <td style={{ padding: '0.8rem' }}>
-                        <span className={`badge ${pay.status === 'paid' ? 'badge-success' : pay.status === 'pending' ? 'badge-warning' : 'badge-danger'}`}>
-                          {pay.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                        {pay.status !== 'paid' && (
-                          <button 
-                            type="button" 
-                            className="btn-primary" 
-                            onClick={() => handleMarkPaymentPaid(pay.id)}
-                            style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem', minHeight: '28px', borderRadius: '4px' }}
-                          >
-                            Mark Paid
-                          </button>
-                        )}
-                      </td>
+                      <td style={{ padding: '0.8rem', fontWeight: 600, color: 'var(--color-primary)' }}>₹{pay.amount.toLocaleString()}</td>
+                      <td style={{ padding: '0.8rem' }}>{pay.transactionId?.split('-')[0] || 'UPI'}</td>
+                      <td style={{ padding: '0.8rem', color: 'var(--text-secondary)' }}>{pay.remarks || 'Subscription Fee Payment'}</td>
                     </tr>
                   ))
                 )}
@@ -1157,95 +984,223 @@ export default function MemberProfileView({ memberId, onBack }) {
     );
   };
 
-  const renderAttendanceTab = () => (
-    <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '12px' }}>
-      <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.4rem' }}>Attendance Checklist Logs</h3>
-      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Log sheet showing chronological history checklist status.</span>
+  const renderAttendanceTab = () => {
+    // Generate monthly calendar checklist
+    const generateCalendarDays = () => {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = today.getMonth(); // 0-indexed
       
-      <div className="table-responsive" style={{ marginTop: '1.5rem' }}>
-        <table className="table-custom" style={{ width: '100%' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)' }}>
-              <th style={{ padding: '0.8rem' }}>Check-in Date</th>
-              <th style={{ padding: '0.8rem' }}>Check-in Time</th>
-              <th style={{ padding: '0.8rem' }}>Check-in Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {attendance.length === 0 ? (
-              <tr>
-                <td colSpan="3" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No attendance record checklist marked.</td>
-              </tr>
-            ) : (
-              attendance.map(att => (
-                <tr key={att.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <td style={{ padding: '0.8rem', fontWeight: 600, color: '#fff', fontFamily: 'monospace' }}>{att.date}</td>
-                  <td style={{ padding: '0.8rem', fontFamily: 'monospace' }}>{att.checkInTime || '--'}</td>
-                  <td style={{ padding: '0.8rem' }}>
-                    <span className={`badge ${att.status === 'present' ? 'badge-success' : att.status === 'late' ? 'badge-warning' : 'badge-danger'}`}>
-                      {att.status.toUpperCase()}
-                    </span>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      const firstDay = new Date(year, month, 1).getDay(); // day of week
+      const totalDays = new Date(year, month + 1, 0).getDate(); // days count
+
+      const grid = [];
+      // Fill empty slots for previous month overflow
+      for (let i = 0; i < firstDay; i++) {
+        grid.push({ type: 'empty' });
+      }
+
+      // Fill current month days
+      for (let d = 1; d <= totalDays; d++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const att = attendance.find(a => a.date === dateStr);
+        
+        let status = 'none';
+        if (att) {
+          status = att.status; // present, absent, late
+        }
+
+        grid.push({
+          type: 'day',
+          day: d,
+          dateStr,
+          status
+        });
+      }
+
+      return grid;
+    };
+
+    const calendarGrid = generateCalendarDays();
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        
+        {/* Summary metric rows */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+          
+          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid var(--color-primary)' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ATTENDANCE RATE</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px' }}>{attendancePct}%</h3>
+          </div>
+          
+          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid #10B981' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>PRESENT DAYS</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px', color: '#10B981' }}>{presentDays} Days</h3>
+          </div>
+
+          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid #F59E0B' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>LATE ENTRIES</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px', color: '#F59E0B' }}>{lateEntries} Times</h3>
+          </div>
+
+          <div className="card-glass" style={{ padding: '1.25rem', borderLeft: '4px solid #EF4444' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>ABSENT DAYS</span>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 700, marginTop: '4px', color: '#EF4444' }}>{absentDays} Days</h3>
+          </div>
+
+        </div>
+
+        {/* Calendar and table checklist layout */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }} className="mobile-column-grid">
+          
+          {/* Monthly Calendar layout */}
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+            <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>{monthNames[new Date().getMonth()]} Checklist Calendar</h4>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
+              {calendarGrid.map((cell, idx) => {
+                if (cell.type === 'empty') {
+                  return <div key={idx} style={{ height: '36px' }}></div>;
+                }
+                
+                let bg = 'rgba(255,255,255,0.03)';
+                let color = 'var(--text-secondary)';
+                if (cell.status === 'present') {
+                  bg = '#10B981';
+                  color = '#fff';
+                } else if (cell.status === 'late') {
+                  bg = '#F59E0B';
+                  color = '#fff';
+                } else if (cell.status === 'absent') {
+                  bg = '#EF4444';
+                  color = '#fff';
+                }
+
+                return (
+                  <div 
+                    key={idx} 
+                    style={{ height: '36px', background: bg, color: color, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600 }}
+                    title={`${cell.dateStr}: ${cell.status}`}
+                  >
+                    {cell.day}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '10px', height: '10px', background: '#10B981', borderRadius: '2px' }}></div>Present</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '10px', height: '10px', background: '#F59E0B', borderRadius: '2px' }}></div>Late</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '10px', height: '10px', background: '#EF4444', borderRadius: '2px' }}></div>Absent</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '10px', height: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '2px' }}></div>No Visit</div>
+            </div>
+          </div>
+
+          {/* History table checklist */}
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column' }}>
+            <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>Attendance History Ledger</h4>
+            <div style={{ flex: 1, maxHeight: '280px', overflowY: 'auto' }}>
+              <table className="table-custom" style={{ width: '100%' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.01)' }}>
+                    <th style={{ padding: '0.6rem' }}>Date</th>
+                    <th style={{ padding: '0.6rem' }}>Check In</th>
+                    <th style={{ padding: '0.6rem' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendance.length === 0 ? (
+                    <tr>
+                      <td colSpan="3" style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No attendance entries logged.</td>
+                    </tr>
+                  ) : (
+                    attendance.map(att => (
+                      <tr key={att.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '0.6rem', fontFamily: 'monospace' }}>{att.date}</td>
+                        <td style={{ padding: '0.6rem', fontFamily: 'monospace' }}>{att.checkInTime || '--'}</td>
+                        <td style={{ padding: '0.6rem' }}>
+                          <span className={`badge ${att.status === 'present' ? 'badge-success' : att.status === 'late' ? 'badge-warning' : 'badge-danger'}`} style={{ fontSize: '0.7rem' }}>
+                            {att.status.toUpperCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="member-profile-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
-      {/* Back to roster toolbar */}
-      <button className="btn-secondary" onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', alignSelf: 'flex-start', padding: '0.5rem 1rem' }}>
+      {/* Back button toolbar */}
+      <button className="btn-secondary" onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: '4px', alignSelf: 'flex-start', padding: '0.5rem 1rem' }}>
         <ChevronLeft size={16} />
-        <span>Back to Roster</span>
+        <span>Back to Members</span>
       </button>
 
-      {/* Header card banner */}
-      <div className="profile-header card-glass" style={{ display: 'flex', gap: '1.5rem', padding: '1.5rem', borderRadius: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ width: '70px', height: '70px', borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.5rem', border: '3px solid var(--color-primary)' }}>
+      {/* Header banner */}
+      <div className="profile-header card-glass" style={{ display: 'flex', gap: '1.25rem', padding: '1.25rem', borderRadius: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.25rem', border: '2px solid var(--color-primary)' }}>
           {member.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
         </div>
         <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#fff', fontFamily: 'var(--font-outfit)' }}>{member.fullName}</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '2px' }}>
-            Goal: <strong style={{ color: '#fff' }}>{member.fitnessGoal}</strong> | Status: <span className={`badge ${member.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem' }}>{member.status.toUpperCase()}</span>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff', fontFamily: 'var(--font-outfit)' }}>{member.fullName}</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '2px' }}>
+            Goal: <strong style={{ color: '#fff' }}>{member.fitnessGoal}</strong> | Plan: <strong style={{ color: '#fff' }}>{member.membershipPlan}</strong>
           </p>
         </div>
       </div>
 
-      {/* Horizontal pill navigation bar for mobile-first scrolling */}
+      {/* Tabs Menu Navigation Bar */}
       <div className="tabs-menu" style={{ display: 'flex', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.08)', overflowX: 'auto', paddingBottom: '0.5rem', width: '100%', WebkitOverflowScrolling: 'touch' }}>
-        <button className={`profile-tab-item tab-link ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'profile' ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'profile' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, outline: 'none', flexShrink: 0 }}>
+        
+        <button className={`profile-tab-item tab-link ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'profile' ? 'rgba(139, 92, 246, 0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'profile' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>
           <User size={15} />
           <span>Profile</span>
         </button>
-        <button className={`profile-tab-item tab-link ${activeTab === 'workout' ? 'active' : ''}`} onClick={() => setActiveTab('workout')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'workout' ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'workout' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, outline: 'none', flexShrink: 0 }}>
+
+        <button className={`profile-tab-item tab-link ${activeTab === 'workout' ? 'active' : ''}`} onClick={() => setActiveTab('workout')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'workout' ? 'rgba(139, 92, 246, 0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'workout' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>
           <Dumbbell size={15} />
           <span>Workout</span>
         </button>
-        <button className={`profile-tab-item tab-link ${activeTab === 'diet' ? 'active' : ''}`} onClick={() => setActiveTab('diet')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'diet' ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'diet' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, outline: 'none', flexShrink: 0 }}>
+
+        <button className={`profile-tab-item tab-link ${activeTab === 'diet' ? 'active' : ''}`} onClick={() => setActiveTab('diet')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'diet' ? 'rgba(139, 92, 246, 0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'diet' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>
           <Apple size={15} />
           <span>Diet</span>
         </button>
-        <button className={`profile-tab-item tab-link ${activeTab === 'progress' ? 'active' : ''}`} onClick={() => setActiveTab('progress')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'progress' ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'progress' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, outline: 'none', flexShrink: 0 }}>
+
+        <button className={`profile-tab-item tab-link ${activeTab === 'progress' ? 'active' : ''}`} onClick={() => setActiveTab('progress')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'progress' ? 'rgba(139, 92, 246, 0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'progress' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>
           <LineChart size={15} />
           <span>Progress</span>
         </button>
-        <button className={`profile-tab-item tab-link ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => setActiveTab('billing')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'billing' ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'billing' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, outline: 'none', flexShrink: 0 }}>
+
+        <button className={`profile-tab-item tab-link ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => setActiveTab('billing')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'billing' ? 'rgba(139, 92, 246, 0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'billing' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>
           <CreditCard size={15} />
           <span>Payments</span>
         </button>
-        <button className={`profile-tab-item tab-link ${activeTab === 'attendance' ? 'active' : ''}`} onClick={() => setActiveTab('attendance')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'attendance' ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'attendance' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, outline: 'none', flexShrink: 0 }}>
+
+        <button className={`profile-tab-item tab-link ${activeTab === 'attendance' ? 'active' : ''}`} onClick={() => setActiveTab('attendance')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.1rem', background: activeTab === 'attendance' ? 'rgba(139, 92, 246, 0.1)' : 'none', border: 'none', borderRadius: '20px', color: activeTab === 'attendance' ? 'var(--color-primary)' : '#fff', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>
           <Activity size={15} />
           <span>Attendance</span>
         </button>
+
       </div>
 
-      {/* 2. LAZY LOADED TAB PANELS */}
+      {/* RENDER ACTIVE TAB */}
       <div className="tab-panels">
         {activeTab === 'profile' && renderProfileTab()}
         {activeTab === 'workout' && renderWorkoutTab()}
@@ -1255,145 +1210,100 @@ export default function MemberProfileView({ memberId, onBack }) {
         {activeTab === 'attendance' && renderAttendanceTab()}
       </div>
 
-      {/* RECORD PAYMENT MODAL DIALOG */}
+      {/* RECORD PAYMENT MODAL */}
       {showPaymentModal && (
         <div className="modal-overlay" style={{ display: 'flex', zIndex: 2000 }}>
-          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '480px', width: '90%', padding: '1.5rem', borderRadius: '12px' }}>
+          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '440px', width: '90%', padding: '1.5rem', borderRadius: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>Record Client Fee Payment</h3>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Record Manual Payment</h3>
               <button className="btn-icon" onClick={() => setShowPaymentModal(false)}><X size={18} /></button>
             </div>
-            
             <form onSubmit={handleRecordPayment} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div className="form-group">
-                <label>Select Membership Plan *</label>
-                <select 
-                  required
-                  value={paymentForm.planType} 
-                  onChange={(e) => handlePlanChange(e.target.value)}
-                >
-                  <option value="">Choose plan...</option>
-                  {gymSettings?.membershipPlans?.map(plan => (
-                    <option key={plan.id} value={plan.name}>{plan.name} (₹{plan.price} / {plan.duration} Month{plan.duration > 1 ? 's' : ''})</option>
-                  )) || (
-                    <>
-                      <option value="Monthly">Monthly</option>
-                      <option value="Quarterly">Quarterly</option>
-                      <option value="Half-Yearly">Half-Yearly</option>
-                      <option value="Yearly">Yearly</option>
-                    </>
-                  )}
-                </select>
-              </div>
-
-              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
-                <div className="form-group">
-                  <label>Amount Received (₹) *</label>
-                  <input 
-                    type="number" 
-                    required 
-                    placeholder="2000"
-                    value={paymentForm.amount} 
-                    onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Payment Date *</label>
-                  <input 
-                    type="date" 
-                    required 
-                    value={paymentForm.paymentDate} 
-                    onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
-                <div className="form-group">
-                  <label>Next Expiry Due Date *</label>
-                  <input 
-                    type="date" 
-                    required 
-                    value={paymentForm.dueDate} 
-                    onChange={(e) => setPaymentForm({ ...paymentForm, dueDate: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Payment Status</label>
-                  <select 
-                    value={paymentForm.status} 
-                    onChange={(e) => setPaymentForm({ ...paymentForm, status: e.target.value })}
-                  >
-                    <option value="paid">Paid</option>
-                    <option value="pending">Pending</option>
-                    <option value="overdue">Overdue</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Transaction ID / Reference (UPI/Cash/Card)</label>
+                <label>Amount Received (₹) *</label>
                 <input 
-                  type="text" 
-                  placeholder="UPI-12345678 or CASH"
-                  value={paymentForm.transactionId} 
-                  onChange={(e) => setPaymentForm({ ...paymentForm, transactionId: e.target.value })}
+                  type="number" 
+                  required 
+                  value={paymentForm.amount} 
+                  onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} 
                 />
               </div>
-
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <div className="form-group">
+                <label>Payment Date</label>
+                <input 
+                  type="date" 
+                  value={paymentForm.paymentDate} 
+                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })} 
+                />
+              </div>
+              <div className="form-group">
+                <label>Payment Method</label>
+                <select value={paymentForm.method} onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}>
+                  <option value="UPI">UPI</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Card">Card</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Remarks</label>
+                <input 
+                  type="text" 
+                  value={paymentForm.remarks} 
+                  onChange={(e) => setPaymentForm({ ...paymentForm, remarks: e.target.value })} 
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                 <button type="button" className="btn-secondary" onClick={() => setShowPaymentModal(false)}>Cancel</button>
-                <button type="submit" className="btn-primary">Record Payment</button>
+                <button type="submit" className="btn-primary">Save Payment</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* CONFIGURE PT MODAL DIALOG */}
+      {/* CONFIGURE PT MODAL */}
       {showPTForm && (
         <div className="modal-overlay" style={{ display: 'flex', zIndex: 2000 }}>
-          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '440px', width: '90%', padding: '1.5rem', borderRadius: '12px' }}>
+          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '440px', width: '90%', padding: '1.5rem', borderRadius: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fff' }}>Configure Personal Training (PT)</h3>
-              <button type="button" className="btn-icon" onClick={() => setShowPTForm(false)}><X size={18} /></button>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>Personal Training Enrolment</h3>
+              <button className="btn-icon" onClick={() => setShowPTForm(false)}><X size={18} /></button>
             </div>
-            
             <form onSubmit={handleSavePTEnrollment} className="responsive-form" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.25rem 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input 
                   type="checkbox" 
                   id="modalIsPT" 
                   checked={ptForm.isPT} 
-                  onChange={(e) => setPtForm({ ...ptForm, isPT: e.target.checked })}
-                  style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                  onChange={(e) => setPtForm({ ...ptForm, isPT: e.target.checked })} 
+                  style={{ width: '20px', height: '20px' }}
                 />
-                <label htmlFor="modalIsPT" style={{ cursor: 'pointer', fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Enrolled in Personal Training (PT)</label>
+                <label htmlFor="modalIsPT" style={{ fontWeight: 600, color: '#fff', fontSize: '0.9rem' }}>Enable PT</label>
               </div>
 
               {ptForm.isPT && (
                 <>
                   <div className="form-group">
-                    <label>PT Fees (₹) *</label>
+                    <label>Sessions Per Week</label>
+                    <select value={ptForm.ptSessionsPerWeek} onChange={(e) => setPtForm({ ...ptForm, ptSessionsPerWeek: Number(e.target.value) })}>
+                      <option value="2">2 sessions/week</option>
+                      <option value="3">3 sessions/week</option>
+                      <option value="4">4 sessions/week</option>
+                      <option value="5">5 sessions/week</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>PT Fee (₹)</label>
                     <input 
                       type="number" 
-                      required 
-                      placeholder="5000"
                       value={ptForm.ptFees} 
-                      onChange={(e) => setPtForm({ ...ptForm, ptFees: e.target.value })}
-                      style={{ minHeight: '40px' }}
+                      onChange={(e) => setPtForm({ ...ptForm, ptFees: e.target.value })} 
                     />
                   </div>
-                  
                   <div className="form-group">
-                    <label>PT Schedule (Slot) *</label>
-                    <select 
-                      required
-                      value={ptForm.ptSchedule} 
-                      onChange={(e) => setPtForm({ ...ptForm, ptSchedule: e.target.value })}
-                      style={{ minHeight: '40px' }}
-                    >
+                    <label>PT Slot Schedule</label>
+                    <select value={ptForm.ptSchedule} onChange={(e) => setPtForm({ ...ptForm, ptSchedule: e.target.value })}>
                       <option value="">Choose slot...</option>
                       {gymSettings?.ptSlots?.map(slot => (
                         <option key={slot} value={slot}>{slot}</option>
@@ -1402,35 +1312,30 @@ export default function MemberProfileView({ memberId, onBack }) {
                       )}
                     </select>
                   </div>
-
-                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
+                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     <div className="form-group">
                       <label>Sessions Completed</label>
                       <input 
                         type="number" 
-                        min="0"
                         value={ptForm.ptSessionsCompleted} 
-                        onChange={(e) => setPtForm({ ...ptForm, ptSessionsCompleted: Number(e.target.value) })}
-                        style={{ minHeight: '40px' }}
+                        onChange={(e) => setPtForm({ ...ptForm, ptSessionsCompleted: Number(e.target.value) })} 
                       />
                     </div>
                     <div className="form-group">
                       <label>Total Pack Sessions</label>
                       <input 
                         type="number" 
-                        min="1"
                         value={ptForm.ptSessionsTotal} 
-                        onChange={(e) => setPtForm({ ...ptForm, ptSessionsTotal: Number(e.target.value) })}
-                        style={{ minHeight: '40px' }}
+                        onChange={(e) => setPtForm({ ...ptForm, ptSessionsTotal: Number(e.target.value) })} 
                       />
                     </div>
                   </div>
                 </>
               )}
 
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowPTForm(false)} style={{ minHeight: '40px' }}>Cancel</button>
-                <button type="submit" className="btn-primary" style={{ minHeight: '40px' }}>Save PT Config</button>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowPTForm(false)}>Cancel</button>
+                <button type="submit" className="btn-primary">Save Config</button>
               </div>
             </form>
           </div>

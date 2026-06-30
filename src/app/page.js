@@ -14,7 +14,6 @@ import PTMembersView from '@/components/views/PTMembersView';
 import AttendanceView from '@/components/views/AttendanceView';
 import SettingsView from '@/components/views/SettingsView';
 import MemberProfileView from '@/components/views/MemberProfileView';
-import NotificationsView from '@/components/views/NotificationsView';
 
 import { Mail, Lock, ArrowRight, Menu, Eye, EyeOff } from 'lucide-react';
 
@@ -113,7 +112,6 @@ export default function Home() {
       case 'pt': return 'PT Members';
       case 'attendance': return 'Attendance Today';
       case 'settings': return 'Trainer Settings';
-      case 'notifications': return 'Notifications Center';
       case 'member-profile': return 'Member Profile Details';
       default: return 'Trainer System';
     }
@@ -131,8 +129,6 @@ export default function Home() {
         return <AttendanceView />;
       case 'settings':
         return <SettingsView />;
-      case 'notifications':
-        return <NotificationsView />;
       case 'member-profile':
         return <MemberProfileView memberId={memberIdParam} onBack={() => { window.location.hash = '#members'; }} />;
       default:

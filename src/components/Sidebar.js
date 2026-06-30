@@ -2,14 +2,13 @@
 
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { LayoutDashboard, Users, Dumbbell, CheckSquare, Bell, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Dumbbell, CheckSquare, Settings, LogOut } from 'lucide-react';
 
 const MENU_ITEMS = [
   { hash: 'dashboard', name: 'Dashboard', icon: LayoutDashboard },
   { hash: 'members', name: 'Members', icon: Users },
   { hash: 'pt', name: 'PT Members', icon: Dumbbell },
   { hash: 'attendance', name: 'Attendance Today', icon: CheckSquare },
-  { hash: 'notifications', name: 'Notifications Center', icon: Bell },
   { hash: 'settings', name: 'Trainer Settings', icon: Settings }
 ];
 

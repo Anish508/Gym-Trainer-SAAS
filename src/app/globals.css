@@ -5,42 +5,43 @@
 /* Design Tokens & Theme Variables */
 [data-theme="dark"] {
   --bg-primary: #050409;
-  --bg-secondary: #0b0913;
-  --bg-glass: rgba(11, 9, 19, 0.85);
-  --bg-glass-card: rgba(16, 14, 27, 0.65);
+  --bg-secondary: #0c0a15;
+  --bg-glass: rgba(12, 10, 21, 0.85);
+  --bg-glass-card: rgba(18, 15, 32, 0.65);
   --border-glass: rgba(255, 255, 255, 0.05);
-  --border-glass-focus: rgba(99, 102, 241, 0.5);
+  --border-glass-focus: rgba(139, 92, 246, 0.5);
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
   --shadow-premium: 0 12px 45px 0 rgba(0, 0, 0, 0.65);
-  --shadow-glow: 0 0 25px rgba(99, 102, 241, 0.35);
+  --shadow-glow: 0 0 25px rgba(139, 92, 246, 0.35);
   --card-hover-bg: rgba(255, 255, 255, 0.04);
 
-  /* Brand Colors Override - Royal Indigo in Dark Mode */
-  --color-primary: #6366F1;
-  --color-primary-hover: #4F46E5;
-  --color-primary-rgb: 99, 102, 241;
+  /* Brand Colors Override - Royal Purple in Dark Mode */
+  --color-primary: #8B5CF6;
+  --color-primary-hover: #7C3AED;
+  --color-primary-rgb: 139, 92, 246;
 }
 
 [data-theme="light"] {
-  --bg-primary: #f8fafc;
-  --bg-secondary: #ffffff;
-  --bg-glass: rgba(255, 255, 255, 0.8);
-  --bg-glass-card: rgba(255, 255, 255, 0.75);
-  --border-glass: rgba(15, 23, 42, 0.08);
-  --border-glass-focus: rgba(var(--color-primary-rgb), 0.6);
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --shadow-premium: 0 12px 40px 0 rgba(15, 23, 42, 0.04);
-  --shadow-glow: 0 0 20px rgba(var(--color-primary-rgb), 0.25);
-  --card-hover-bg: rgba(15, 23, 42, 0.02);
+  /* Provide a premium light purple theme */
+  --bg-primary: #050409; /* Map to dark obsidian as requested for premium single trainer layout */
+  --bg-secondary: #0c0a15;
+  --bg-glass: rgba(12, 10, 21, 0.85);
+  --bg-glass-card: rgba(18, 15, 32, 0.65);
+  --border-glass: rgba(255, 255, 255, 0.05);
+  --border-glass-focus: rgba(139, 92, 246, 0.5);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --shadow-premium: 0 12px 45px 0 rgba(0, 0, 0, 0.65);
+  --shadow-glow: 0 0 25px rgba(139, 92, 246, 0.35);
+  --card-hover-bg: rgba(255, 255, 255, 0.04);
 
-  /* Brand Colors Override - Premium Crimson Coral in Light Mode */
-  --color-primary: #FF2A5F;
-  --color-primary-hover: #e01b4c;
-  --color-primary-rgb: 255, 42, 95;
+  /* Brand Colors Override - Premium Purple in Light Mode too */
+  --color-primary: #8B5CF6;
+  --color-primary-hover: #7C3AED;
+  --color-primary-rgb: 139, 92, 246;
 }
 
 :root {

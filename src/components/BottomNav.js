@@ -1,13 +1,13 @@
 'use client';
 
 import React from 'react';
-import { LayoutDashboard, Users, Bell, CheckSquare, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, Dumbbell, CheckSquare, Settings } from 'lucide-react';
 
 const MENU_ITEMS = [
   { hash: 'dashboard', name: 'Dashboard', icon: LayoutDashboard },
   { hash: 'members', name: 'Members', icon: Users },
+  { hash: 'pt', name: 'PT', icon: Dumbbell },
   { hash: 'attendance', name: 'Attendance', icon: CheckSquare },
-  { hash: 'notifications', name: 'Notifications', icon: Bell },
   { hash: 'settings', name: 'Settings', icon: Settings }
 ];
 
