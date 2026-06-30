@@ -1832,5 +1832,44 @@ body, html {
   }
 }
 
+/* Responsive grid for workout splits */
+.exercise-row-grid {
+  display: grid;
+  grid-template-columns: 3fr 1fr 1fr 1.5fr 3fr auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .exercise-row-grid {
+    grid-template-columns: 1fr 1fr 1fr !important;
+    gap: 8px !important;
+    padding: 0.85rem !important;
+    background: rgba(255, 255, 255, 0.02) !important;
+    border: 1px solid var(--border-glass) !important;
+    border-radius: 8px !important;
+    margin-bottom: 8px !important;
+  }
+  .exercise-row-grid > input:nth-child(1) { /* Exercise Name */
+    grid-column: span 3 !important;
+  }
+  .exercise-row-grid > input:nth-child(5) { /* Coaching Notes */
+    grid-column: span 2 !important;
+  }
+  .exercise-row-grid > button { /* Delete button */
+    grid-column: span 1 !important;
+    width: 100% !important;
+    height: 36px !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    border: 1px solid rgba(239, 68, 68, 0.2) !important;
+    background: rgba(239, 68, 68, 0.05) !important;
+    border-radius: 6px !important;
+  }
+}
+
+
 
 

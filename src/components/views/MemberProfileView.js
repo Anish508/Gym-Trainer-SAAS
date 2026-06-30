@@ -532,7 +532,7 @@ export default function MemberProfileView({ memberId, onBack }) {
                   
                   {/* Exercises List table/inputs */}
                   {split.exercises.map((ex, idx) => (
-                    <div key={ex.id || idx} style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr 1.5fr 3fr auto', gap: '8px', alignItems: 'center' }} className="mobile-column-grid">
+                    <div key={ex.id || idx} className="exercise-row-grid">
                       <input 
                         type="text" 
                         placeholder="Exercise Name" 
