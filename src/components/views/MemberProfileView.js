@@ -30,7 +30,9 @@ import {
   Copy,
   FolderHeart,
   ChevronRight,
-  ClipboardList
+  ClipboardList,
+  Eye,
+  Edit
 } from 'lucide-react';
 
 export default function MemberProfileView({ memberId, onBack }) {
@@ -68,6 +70,11 @@ export default function MemberProfileView({ memberId, onBack }) {
   const [splitsSearchTerm, setSplitsSearchTerm] = useState('');
   const [splitsSortBy, setSplitsSortBy] = useState('name');
   const [favorites, setFavorites] = useState([]);
+
+  // Edit and Preview States
+  const [isEditingWorkout, setIsEditingWorkout] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [viewingTemplate, setViewingTemplate] = useState(null);
 
   // Apply template confirm overlay
   const [showApplyConfirm, setShowApplyConfirm] = useState(false);
@@ -502,38 +509,67 @@ export default function MemberProfileView({ memberId, onBack }) {
     setShowApplyConfirm(true);
   };
 
-  const executeApplyTemplate = (replace) => {
+  const executeApplyTemplate = async (replace) => {
     if (!templateToApply) return;
+    
+    let nextSchedule = {};
+    let nextPlanName = templateToApply.name;
+    let nextDifficulty = templateToApply.difficulty;
+    let nextGoal = templateToApply.goal;
     
     if (replace) {
       // Overwrite split
-      setWorkoutSchedule(templateToApply.schedule);
-      setWorkoutPlanName(templateToApply.name);
-      setWorkoutDifficulty(templateToApply.difficulty);
-      showToast('success', `Replaced workout split with "${templateToApply.name}"!`);
+      nextSchedule = templateToApply.schedule;
     } else {
       // Merge split
-      const merged = {};
       const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
       days.forEach(day => {
         const currentDay = workoutSchedule[day] || { isRestDay: true, workoutName: '', exercises: [] };
         const templateDay = templateToApply.schedule[day] || { isRestDay: true, workoutName: '', exercises: [] };
 
         if (templateDay.isRestDay) {
-          merged[day] = { ...currentDay };
+          nextSchedule[day] = { ...currentDay };
         } else {
-          merged[day] = {
+          nextSchedule[day] = {
             isRestDay: false,
             workoutName: currentDay.workoutName && currentDay.workoutName !== 'Rest' ? `${currentDay.workoutName} + ${templateDay.workoutName}` : templateDay.workoutName,
             exercises: [...(currentDay.exercises || []), ...(templateDay.exercises || [])]
           };
         }
       });
-      setWorkoutSchedule(merged);
-      showToast('success', `Merged "${templateToApply.name}" templates with current schedule!`);
     }
-    setShowApplyConfirm(false);
-    setShowSplitsLibrary(false);
+
+    try {
+      if (workout) {
+        await dbUpdate('workouts', workout.id, { 
+          planName: nextPlanName,
+          difficulty: nextDifficulty,
+          fitnessGoal: nextGoal,
+          schedule: nextSchedule,
+          templateId: templateToApply.id
+        });
+      } else {
+        await dbCreate('workouts', {
+          id: `W-${memberId}`,
+          memberId,
+          planName: nextPlanName,
+          difficulty: nextDifficulty,
+          fitnessGoal: nextGoal,
+          schedule: nextSchedule,
+          templateId: templateToApply.id
+        });
+      }
+      showToast('success', replace 
+        ? `Replaced workout split with "${nextPlanName}"!`
+        : `Merged "${nextPlanName}" template with current schedule!`
+      );
+      setShowApplyConfirm(false);
+      setShowSplitsLibrary(false);
+      loadProfileData();
+      window.dispatchEvent(new Event('db-change'));
+    } catch (err) {
+      showToast('error', "Failed to apply workout template.");
+    }
   };
 
   // Copy Previous Day split helper
@@ -745,12 +781,14 @@ export default function MemberProfileView({ memberId, onBack }) {
     return 'badge-upcoming';
   };
 
-  // Filter templates list
   const missedWorkouts = rescheduledLogs.filter(log => log.status?.toLowerCase() === 'missed');
 
   const filteredTemplates = workoutTemplates.filter(t => 
-    (t.name || '').toLowerCase().includes(splitsSearchTerm.toLowerCase()) ||
-    (t.goal || '').toLowerCase().includes(splitsSearchTerm.toLowerCase())
+    !t.isArchived && (
+      (t.name || '').toLowerCase().includes(splitsSearchTerm.toLowerCase()) ||
+      (t.goal || '').toLowerCase().includes(splitsSearchTerm.toLowerCase()) ||
+      (t.muscles || '').toLowerCase().includes(splitsSearchTerm.toLowerCase())
+    )
   ).sort((a, b) => {
     if (splitsSortBy === 'name') {
       return (a.name || '').localeCompare(b.name || '');
@@ -832,53 +870,321 @@ export default function MemberProfileView({ memberId, onBack }) {
           </button>
         </div>
       </div>
-
     </div>
   );
 
   const renderWorkoutTab = () => {
-    const split = workoutSchedule[selectedDay] || { isRestDay: true, workoutName: 'Rest', exercises: [] };
     const daysArr = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const split = workoutSchedule[selectedDay] || { isRestDay: true, workoutName: 'Rest', exercises: [] };
     const prevDayName = daysArr[(daysArr.indexOf(selectedDay) + 6) % 7];
 
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    // Helper to render rescheduling log history table
+    const renderRescheduledHistoryTable = () => (
+      <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+        <h4 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.05rem', fontWeight: 600 }}>Workout Rescheduling & Missed History</h4>
         
-        {/* Sticky Alert panel for missed workouts */}
-        {missedWorkouts.length > 0 && (
-          <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '14px', borderLeft: '5px solid #EF4444', background: 'rgba(239,68,68,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <ClipboardList size={22} style={{ color: '#EF4444' }} />
-              <div>
-                <strong style={{ color: '#fff', fontSize: '0.95rem' }}>Missed Workout Detected</strong>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                  {missedWorkouts[0].workoutName} on {missedWorkouts[0].date} was missed (Absent).
-                </p>
+        <div className="table-responsive">
+          <table className="table-custom" style={{ width: '100%' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.01)' }}>
+                <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>ORIGINAL DATE</th>
+                <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>WORKOUT</th>
+                <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>STATUS</th>
+                <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>RESCHEDULED TO</th>
+                <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>COACHING NOTES</th>
+                <th style={{ padding: '0.8rem', fontSize: '0.75rem', textAlign: 'right' }}>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rescheduledLogs.length === 0 ? (
+                <tr>
+                  <td colSpan="6" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No rescheduled workouts on record.</td>
+                </tr>
+              ) : (
+                [...rescheduledLogs].sort((a,b) => new Date(b.date) - new Date(a.date)).map(log => (
+                  <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <td style={{ padding: '0.8rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>{log.date}</td>
+                    <td style={{ padding: '0.8rem', fontWeight: 600, color: '#fff', fontSize: '0.85rem' }}>{log.workoutName}</td>
+                    <td style={{ padding: '0.8rem' }}>
+                      <span className={`badge ${getStatusBadgeClass(log.status)}`} style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                        {log.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '0.8rem' }}>
+                      {log.rescheduledTo ? (
+                        <span className="badge badge-success" style={{ fontSize: '0.8rem', fontFamily: 'monospace', background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '0.2rem 0.5rem' }}>
+                          {log.rescheduledTo}
+                        </span>
+                      ) : '--'}
+                    </td>
+                    <td style={{ padding: '0.8rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{log.note || '--'}</td>
+                    <td style={{ padding: '0.8rem', textAlign: 'right' }}>
+                      <div style={{ display: 'inline-flex', gap: '8px' }}>
+                        <button 
+                          type="button" 
+                          className="btn-secondary" 
+                          onClick={() => {
+                            setEditRescheduleData({
+                              id: log.id,
+                              status: log.status,
+                              rescheduledTo: log.rescheduledTo || '',
+                              workoutName: log.workoutName,
+                              note: log.note || ''
+                            });
+                            setShowEditRescheduleModal(true);
+                          }}
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', minHeight: '26px' }}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          type="button" 
+                          className="btn-secondary" 
+                          onClick={() => handleDeleteRescheduleLog(log.id)}
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', minHeight: '26px', color: '#EF4444', borderColor: 'rgba(239,68,68,0.2)' }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+
+    // --- SUB-VIEW 1: NO ACTIVE WORKOUT PLAN ---
+    if (!workout) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          
+          {missedWorkouts.length > 0 && (
+            <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '14px', borderLeft: '5px solid #EF4444', background: 'rgba(239,68,68,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <ClipboardList size={22} style={{ color: '#EF4444' }} />
+                <div>
+                  <strong style={{ color: '#fff', fontSize: '0.95rem' }}>Missed Workout Detected</strong>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {missedWorkouts[0].workoutName} on {missedWorkouts[0].date} was missed (Absent).
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn-primary" onClick={() => handleOpenReschedule(missedWorkouts[0])} style={{ background: '#EF4444', height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                  Reschedule
+                </button>
+                <button className="btn-secondary" onClick={() => handleSkipWorkout(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                  Skip
+                </button>
+                <button className="btn-secondary" onClick={() => handleCompleteLater(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                  Complete Later
+                </button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="btn-primary" onClick={() => handleOpenReschedule(missedWorkouts[0])} style={{ background: '#EF4444', height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
-                Reschedule
+          )}
+
+          <div className="card-glass text-center" style={{ padding: '3.5rem 2rem', borderRadius: '16px', border: '1px dashed var(--border-glass)' }}>
+            <div style={{ display: 'inline-flex', padding: '1.25rem', borderRadius: '50%', background: 'rgba(139, 92, 246, 0.1)', color: 'var(--color-primary)', marginBottom: '1.25rem' }}>
+              <Dumbbell size={40} className="glow-icon" />
+            </div>
+            
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff', fontFamily: 'var(--font-outfit)' }}>No Active Workout Plan Assigned</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '420px', margin: '0.5rem auto 1.75rem auto', lineHeight: '1.45' }}>
+              Standardize this client's routine by applying a workout program template from your trainer library in a single click, or construct a custom split from scratch.
+            </p>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={() => setShowSplitsLibrary(true)}
+                style={{ padding: '0.65rem 1.5rem', background: 'var(--color-primary)', display: 'flex', gap: '6px', alignItems: 'center', height: '42px' }}
+              >
+                <Dumbbell size={16} />
+                <span>Apply Workout Template</span>
               </button>
-              <button className="btn-secondary" onClick={() => handleSkipWorkout(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
-                Skip
-              </button>
-              <button className="btn-secondary" onClick={() => handleCompleteLater(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
-                Complete Later
+              
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={async () => {
+                  const emptySchedule = {};
+                  daysArr.forEach(d => {
+                    emptySchedule[d] = { isRestDay: d === 'Sunday', workoutName: d === 'Sunday' ? 'Rest Day' : 'Workout focus', exercises: [] };
+                  });
+                  try {
+                    await dbCreate('workouts', {
+                      id: `W-${memberId}`,
+                      memberId,
+                      planName: 'Custom Split',
+                      difficulty: 'Intermediate',
+                      fitnessGoal: member.fitnessGoal || 'General Fitness',
+                      schedule: emptySchedule
+                    });
+                    showToast('success', 'Custom schedule initialized. You can now build workouts manually.');
+                    loadProfileData();
+                    setIsEditingWorkout(true);
+                  } catch (e) {
+                    showToast('error', 'Failed to initialize custom split.');
+                  }
+                }}
+                style={{ padding: '0.65rem 1.5rem', height: '42px' }}
+              >
+                Create Custom Split Manually
               </button>
             </div>
           </div>
-        )}
 
-        {/* Client Workout Planner Main Editor Layout */}
+          {renderRescheduledHistoryTable()}
+
+        </div>
+      );
+    }
+
+    // --- SUB-VIEW 2: CURRENT WORKOUT SPLIT SUMMARY CARD (DEFAULT WORKFLOW) ---
+    if (!isEditingWorkout) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          
+          {/* Missed workouts alert */}
+          {missedWorkouts.length > 0 && (
+            <div className="card-glass" style={{ padding: '1.25rem', borderRadius: '14px', borderLeft: '5px solid #EF4444', background: 'rgba(239,68,68,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <ClipboardList size={22} style={{ color: '#EF4444' }} />
+                <div>
+                  <strong style={{ color: '#fff', fontSize: '0.95rem' }}>Missed Workout Detected</strong>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {missedWorkouts[0].workoutName} on {missedWorkouts[0].date} was missed (Absent).
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn-primary" onClick={() => handleOpenReschedule(missedWorkouts[0])} style={{ background: '#EF4444', height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                  Reschedule
+                </button>
+                <button className="btn-secondary" onClick={() => handleSkipWorkout(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                  Skip
+                </button>
+                <button className="btn-secondary" onClick={() => handleCompleteLater(missedWorkouts[0])} style={{ height: '34px', fontSize: '0.8rem', padding: '0 0.85rem' }}>
+                  Complete Later
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Routine Header Details */}
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.25rem', border: '1px solid var(--border-glass)' }}>
+            <div>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', tracking: '0.05em' }}>CLIENT ACTIVE WORKOUT SPLIT</span>
+              <h3 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#fff', marginTop: '2px' }}>
+                {workoutPlanName}
+              </h3>
+              
+              <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                <div><strong>Difficulty:</strong> <span style={{ color: 'var(--color-primary)' }}>{workoutDifficulty}</span></div>
+                <div>•</div>
+                <div><strong>Goal Target:</strong> <span style={{ color: '#fff' }}>{workout.fitnessGoal || member.fitnessGoal || 'General Fitness'}</span></div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => {
+                  setViewingTemplate({
+                    name: workoutPlanName,
+                    goal: workout.fitnessGoal || 'General Fitness',
+                    difficulty: workoutDifficulty,
+                    schedule: workoutSchedule
+                  });
+                  setShowViewModal(true);
+                }}
+                style={{ height: '38px', padding: '0 1rem', fontSize: '0.8rem', display: 'flex', gap: '4px', alignItems: 'center' }}
+              >
+                <Eye size={14} />
+                <span>View Routine</span>
+              </button>
+
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => setShowSplitsLibrary(true)}
+                style={{ height: '38px', padding: '0 1rem', fontSize: '0.8rem' }}
+              >
+                Change Template
+              </button>
+
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={() => setIsEditingWorkout(true)}
+                style={{ height: '38px', padding: '0 1.25rem', fontSize: '0.8rem', display: 'flex', gap: '4px', alignItems: 'center', background: 'var(--color-primary)' }}
+              >
+                <Edit size={14} />
+                <span>Edit Member Workout</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Split Weekly Summary Grid */}
+          <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#fff', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Weekly Split Summary</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+              {daysArr.map(d => {
+                const daySplit = workoutSchedule[d] || { isRestDay: true, workoutName: 'Rest' };
+                const isRest = daySplit.isRestDay;
+                const count = daySplit.exercises?.length || 0;
+
+                return (
+                  <div 
+                    key={d} 
+                    style={{ 
+                      padding: '0.75rem', 
+                      borderRadius: '10px', 
+                      background: isRest ? 'rgba(255,255,255,0.01)' : 'rgba(139,92,246,0.02)',
+                      border: '1px solid var(--border-glass)',
+                      textAlign: 'center'
+                    }}
+                  >
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>{d.slice(0,3)}</div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isRest ? 'var(--text-muted)' : '#fff', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {isRest ? 'Rest Day' : (daySplit.workoutName || 'Active')}
+                    </div>
+                    {!isRest && (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--color-primary)', display: 'block', marginTop: '2px' }}>
+                        {count} exercise{count !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Rescheduled History Table */}
+          {renderRescheduledHistoryTable()}
+
+        </div>
+      );
+    }
+
+    // --- SUB-VIEW 3: WORKOUT SPLIT MANUAL BUILDER & EDITOR (SHOWN ONLY ON EDIT CLICK) ---
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        
         <div className="card-glass profile-tab-card" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           
           {/* Header toolbar */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '1rem' }}>
             <div>
-              <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.2rem', fontWeight: 600 }}>Client Workout Planner</h3>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Customize individual days or apply split templates.</span>
+              <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.25rem', fontWeight: 700, color: '#fff' }}>Manual Workout Planner</h3>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Customize workout focus and add/remove exercises manually for this member.</span>
             </div>
+            
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button type="button" className="btn-secondary" onClick={() => {
                 localStorage.setItem('kmf_copied_workout', JSON.stringify(workoutSchedule));
@@ -899,9 +1205,13 @@ export default function MemberProfileView({ memberId, onBack }) {
               }} style={{ height: '38px', padding: '0 0.85rem', fontSize: '0.8rem' }}>
                 Paste Week
               </button>
-              <button type="button" className="btn-primary" onClick={() => setShowSplitsLibrary(true)} style={{ height: '38px', padding: '0 1rem', fontSize: '0.8rem', display: 'flex', gap: '6px', alignItems: 'center', background: 'var(--color-primary)' }}>
-                <Dumbbell size={14} />
-                <span>Apply Split template...</span>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => setIsEditingWorkout(false)}
+                style={{ height: '38px', padding: '0 1rem', fontSize: '0.8rem' }}
+              >
+                Cancel Edits
               </button>
             </div>
           </div>
@@ -1082,86 +1392,22 @@ export default function MemberProfileView({ memberId, onBack }) {
 
           </div>
 
-          <button onClick={() => handleSaveWorkout()} className="btn-primary" style={{ alignSelf: 'flex-end', padding: '0.6rem 2.5rem' }}>
-            Save Workout Schedule
-          </button>
-
-        </div>
-
-        {/* Rescheduling & Missed Workouts Log Table */}
-        <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-          <h4 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.05rem', fontWeight: 600 }}>Workout Rescheduling & Missed History</h4>
-          
-          <div className="table-responsive">
-            <table className="table-custom" style={{ width: '100%' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.01)' }}>
-                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>ORIGINAL DATE</th>
-                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>WORKOUT</th>
-                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>STATUS</th>
-                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>RESCHEDULED TO</th>
-                  <th style={{ padding: '0.8rem', fontSize: '0.75rem' }}>COACHING NOTES</th>
-                  <th style={{ padding: '0.8rem', fontSize: '0.75rem', textAlign: 'right' }}>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rescheduledLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan="6" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No rescheduled workouts on record.</td>
-                  </tr>
-                ) : (
-                  [...rescheduledLogs].sort((a,b) => new Date(b.date) - new Date(a.date)).map(log => (
-                    <tr key={log.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      <td style={{ padding: '0.8rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>{log.date}</td>
-                      <td style={{ padding: '0.8rem', fontWeight: 600, color: '#fff', fontSize: '0.85rem' }}>{log.workoutName}</td>
-                      <td style={{ padding: '0.8rem' }}>
-                        <span className={`badge ${getStatusBadgeClass(log.status)}`} style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>
-                          {log.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: '0.8rem' }}>
-                        {log.rescheduledTo ? (
-                          <span className="badge badge-success" style={{ fontSize: '0.8rem', fontFamily: 'monospace', background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '0.2rem 0.5rem' }}>
-                            {log.rescheduledTo}
-                          </span>
-                        ) : '--'}
-                      </td>
-                      <td style={{ padding: '0.8rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{log.note || '--'}</td>
-                      <td style={{ padding: '0.8rem', textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', gap: '8px' }}>
-                          <button 
-                            type="button" 
-                            className="btn-secondary" 
-                            onClick={() => {
-                              setEditRescheduleData({
-                                id: log.id,
-                                status: log.status,
-                                rescheduledTo: log.rescheduledTo || '',
-                                workoutName: log.workoutName,
-                                note: log.note || ''
-                              });
-                              setShowEditRescheduleModal(true);
-                            }}
-                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', minHeight: '26px' }}
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            type="button" 
-                            className="btn-secondary" 
-                            onClick={() => handleDeleteRescheduleLog(log.id)}
-                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', minHeight: '26px', color: '#EF4444', borderColor: 'rgba(239,68,68,0.2)' }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <button type="button" className="btn-secondary" onClick={() => setIsEditingWorkout(false)} style={{ padding: '0.6rem 1.5rem' }}>
+              Cancel
+            </button>
+            <button 
+              onClick={async (e) => {
+                await handleSaveWorkout(e);
+                setIsEditingWorkout(false);
+              }} 
+              className="btn-primary" 
+              style={{ padding: '0.6rem 2.5rem' }}
+            >
+              Save Workout Schedule
+            </button>
           </div>
+
         </div>
 
       </div>
@@ -1171,7 +1417,6 @@ export default function MemberProfileView({ memberId, onBack }) {
   const renderDietTab = () => (
     <div className="card-glass" style={{ padding: '1.5rem', borderRadius: '16px' }}>
       <h3 style={{ fontFamily: 'var(--font-outfit)', fontSize: '1.15rem', marginBottom: '0.4rem' }}>Diet & Nutrition Reference</h3>
-      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Manage macro goals, meal components, and supplements.</span>
 
       <form onSubmit={handleSaveDiet} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem' }}>
         
@@ -1933,14 +2178,9 @@ export default function MemberProfileView({ memberId, onBack }) {
                 <Dumbbell size={20} style={{ color: 'var(--color-primary)' }} />
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#fff', fontFamily: 'var(--font-outfit)', margin: 0 }}>Workout Templates Library</h3>
               </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button type="button" className="btn-primary" onClick={handleCreateTemplate} style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', minHeight: '32px' }}>
-                  + Create Template
-                </button>
-                <button className="btn-icon" onClick={() => setShowSplitsLibrary(false)} style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>
-                  <X size={18} />
-                </button>
-              </div>
+              <button className="btn-icon" onClick={() => setShowSplitsLibrary(false)} style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>
+                <X size={18} />
+              </button>
             </div>
 
             {/* Search & Sort Panel */}
@@ -1949,7 +2189,7 @@ export default function MemberProfileView({ memberId, onBack }) {
                 <SearchIcon size={15} style={{ color: 'var(--text-muted)' }} />
                 <input 
                   type="text" 
-                  placeholder="Search templates by name or goal..." 
+                  placeholder="Search templates by name, goal, or muscle group..." 
                   value={splitsSearchTerm}
                   onChange={(e) => setSplitsSearchTerm(e.target.value)}
                   style={{ background: 'none', border: 'none', color: '#fff', outline: 'none', width: '100%', fontSize: '0.85rem' }}
@@ -1967,19 +2207,19 @@ export default function MemberProfileView({ memberId, onBack }) {
             </div>
 
             {/* Templates Cards List */}
-            <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.8rem', paddingRight: '4px' }}>
+            <div style={{ maxHeight: '380px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.8rem', paddingRight: '4px' }}>
               {filteredTemplates.length === 0 ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No split templates matched your search.</div>
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No active templates found.</div>
               ) : (
                 filteredTemplates.map(t => {
                   const isFav = favorites.includes(t.id);
+                  const activeDaysCount = Object.values(t.schedule || {}).filter(day => !day.isRestDay).length;
 
                   return (
                     <div 
                       key={t.id} 
-                      className="card-glass" 
-                      style={{ padding: '1rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', border: '1px solid rgba(255,255,255,0.04)', background: 'rgba(255,255,255,0.01)' }}
-                      className="mobile-column-grid"
+                      className="card-glass mobile-column-grid" 
+                      style={{ padding: '1.25rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', border: '1px solid rgba(255,255,255,0.04)', background: 'rgba(255,255,255,0.01)' }}
                     >
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1996,41 +2236,58 @@ export default function MemberProfileView({ memberId, onBack }) {
                           >
                             {t.difficulty}
                           </span>
+                          <span 
+                            style={{ 
+                              fontSize: '0.7rem', 
+                              padding: '0.1rem 0.4rem', 
+                              borderRadius: '4px',
+                              background: 'rgba(139,92,246,0.1)',
+                              color: 'var(--color-primary)',
+                              fontWeight: 600
+                            }}
+                          >
+                            {activeDaysCount} Days/Week
+                          </span>
                         </div>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '4px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <strong>Goal:</strong> {t.goal}
-                        </p>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '2px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          <strong>Description:</strong> {t.description || 'Workout split routine'}
-                        </p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                            <strong>Goal:</strong> <span style={{ color: '#fff' }}>{t.goal}</span>
+                          </p>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                            <strong>Target Muscle Groups:</strong> <span style={{ color: 'var(--color-primary)' }}>{t.muscles || 'Full Body'}</span>
+                          </p>
+                          {t.description && (
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '4px 0 0 0', lineHeight: '1.3' }}>
+                              {t.description}
+                            </p>
+                          )}
+                        </div>
                       </div>
 
                       {/* Action buttons on the right */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button 
                           type="button" 
-                          onClick={() => toggleFavorite(t.id)} 
-                          style={{ background: 'none', border: 'none', color: isFav ? '#F59E0B' : 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-                        >
-                          <Star size={16} fill={isFav ? '#F59E0B' : 'none'} />
-                        </button>
-                        
-                        <button 
-                          type="button" 
                           className="btn-secondary" 
-                          onClick={() => handleDuplicateTemplate(t)}
-                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', minHeight: '32px', height: '32px' }}
+                          onClick={() => {
+                            setViewingTemplate(t);
+                            setShowViewModal(true);
+                          }}
+                          style={{ fontSize: '0.75rem', padding: '0.4rem 0.85rem', minHeight: '34px', height: '34px', display: 'flex', gap: '4px', alignItems: 'center' }}
                         >
-                          Duplicate
+                          <Eye size={14} />
+                          <span>Preview</span>
                         </button>
                         
                         <button 
                           type="button" 
                           className="btn-primary" 
                           onClick={() => handleApplyTemplateClick(t)}
-                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.85rem', minHeight: '32px', height: '32px', background: 'var(--color-primary)' }}
+                          style={{ fontSize: '0.75rem', padding: '0.4rem 1rem', minHeight: '34px', height: '34px', background: 'var(--color-primary)', display: 'flex', gap: '4px', alignItems: 'center' }}
                         >
-                          Apply to Client
+                          <Plus size={14} />
+                          <span>Apply Template</span>
                         </button>
                       </div>
 
@@ -2040,6 +2297,101 @@ export default function MemberProfileView({ memberId, onBack }) {
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* TEMPLATE DETAIL PREVIEW MODAL OVERLAY */}
+      {showViewModal && viewingTemplate && (
+        <div className="modal-overlay" style={{ display: 'flex', zIndex: 5000 }}>
+          <div className="modal-card card-glass" style={{ display: 'block', maxWidth: '640px', width: '90%', padding: '1.5rem', borderRadius: '16px', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#fff', fontFamily: 'var(--font-outfit)', margin: 0 }}>
+                  {viewingTemplate.name}
+                </h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Goal: {viewingTemplate.goal} | Difficulty: {viewingTemplate.difficulty}
+                </span>
+              </div>
+              <button className="btn-icon" onClick={() => {
+                setShowViewModal(false);
+                setViewingTemplate(null);
+              }} style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Workout Days Detail List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
+                const daySplit = viewingTemplate.schedule?.[day] || { isRestDay: true, workoutName: 'Rest Day', exercises: [] };
+                const isRest = daySplit.isRestDay;
+                
+                return (
+                  <div 
+                    key={day} 
+                    style={{ 
+                      padding: '1rem', 
+                      borderRadius: '10px', 
+                      background: isRest ? 'rgba(255,255,255,0.01)' : 'rgba(139, 92, 246, 0.02)',
+                      border: '1px solid var(--border-glass)' 
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                      <strong style={{ color: '#fff', fontSize: '0.9rem' }}>{day}</strong>
+                      <span 
+                        style={{ 
+                          fontSize: '0.75rem', 
+                          fontWeight: 600, 
+                          color: isRest ? 'var(--text-muted)' : 'var(--color-primary)',
+                          background: isRest ? 'rgba(255,255,255,0.05)' : 'rgba(139, 92, 246, 0.1)',
+                          padding: '0.2rem 0.6rem',
+                          borderRadius: '4px'
+                        }}
+                      >
+                        {isRest ? 'Rest Day' : (daySplit.workoutName || 'Active Split')}
+                      </span>
+                    </div>
+
+                    {!isRest && daySplit.exercises && daySplit.exercises.length > 0 && (
+                      <div style={{ marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, paddingBottom: '4px' }}>
+                          <span>EXERCISE</span>
+                          <span style={{ textAlign: 'center' }}>SETS</span>
+                          <span style={{ textAlign: 'center' }}>REPS</span>
+                          <span style={{ textAlign: 'center' }}>REST</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {daySplit.exercises.map((ex, idx) => (
+                            <div key={ex.id || idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                              <span style={{ color: '#fff', fontWeight: 500 }}>{ex.name}</span>
+                              <span style={{ textAlign: 'center' }}>{ex.sets || '--'}</span>
+                              <span style={{ textAlign: 'center' }}>{ex.reps || '--'}</span>
+                              <span style={{ textAlign: 'center' }}>{ex.restTime || '--'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => {
+                  setShowViewModal(false);
+                  setViewingTemplate(null);
+                }}
+                style={{ padding: '0.5rem 1.5rem' }}
+              >
+                Close Preview
+              </button>
+            </div>
           </div>
         </div>
       )}

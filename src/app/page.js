@@ -64,12 +64,8 @@ export default function Home() {
       const [baseRoute, queryString] = cleanHash.split('?');
       const params = new URLSearchParams(queryString || '');
       
-      // Handle setting restrictions for Demo users
-      if (baseRoute === 'settings' && isDemo) {
-        alert("Access restricted: Gym settings are blocked in Demo Mode.");
-        window.location.hash = '#dashboard';
-        return;
-      }
+      // Allow Demo users to view settings to test the template system
+
 
       setCurrentView(baseRoute);
       if (baseRoute === 'member-profile') {

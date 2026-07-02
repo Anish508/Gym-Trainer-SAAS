@@ -149,9 +149,15 @@ CREATE TABLE IF NOT EXISTS public.workout_templates (
     goal TEXT,
     difficulty TEXT DEFAULT 'Intermediate',
     description TEXT,
-    schedule JSONB NOT NULL,
+    split_type TEXT,
+    duration TEXT,
+    days_count INTEGER,
+    muscles TEXT,
     is_favorite BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+    is_archived BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    schedule JSONB NOT NULL
 );
 
 -- Disable Row Level Security (RLS) to allow direct CRUD operations without policies
@@ -165,4 +171,15 @@ ALTER TABLE public.notifications DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rescheduled_workouts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.workout_templates DISABLE ROW LEVEL SECURITY;
+
+-- Migration/Updates for existing database installations
+ALTER TABLE public.workout_templates ADD COLUMN IF NOT EXISTS split_type TEXT;
+ALTER TABLE public.workout_templates ADD COLUMN IF NOT EXISTS duration TEXT;
+ALTER TABLE public.workout_templates ADD COLUMN IF NOT EXISTS days_count INTEGER;
+ALTER TABLE public.workout_templates ADD COLUMN IF NOT EXISTS muscles TEXT;
+ALTER TABLE public.workout_templates ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.workout_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW());
+
+ALTER TABLE public.workouts ADD COLUMN IF NOT EXISTS template_id TEXT;
+
 
