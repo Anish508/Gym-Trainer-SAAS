@@ -800,7 +800,37 @@ export function initLocalStorageSeeding() {
 }
 
 // Helper to select localStorage key
+// Helper to select localStorage key
 const getStorageKey = (collectionName) => `kmf_gym_${collectionName}`;
+
+// Browser In-Memory Cache for Supabase/Local Database reads
+const dbCache = new Map();
+const CACHE_TTL = 30000; // 30 seconds
+
+function getCache(key) {
+  if (typeof window === 'undefined') return null;
+  const cached = dbCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > CACHE_TTL) {
+    dbCache.delete(key);
+    return null;
+  }
+  return cached.data;
+}
+
+function setCache(key, data) {
+  if (typeof window === 'undefined') return;
+  dbCache.set(key, { data, timestamp: Date.now() });
+}
+
+function invalidateCache(collectionName) {
+  if (typeof window === 'undefined') return;
+  for (const key of dbCache.keys()) {
+    if (key.startsWith(`${collectionName}:`) || key === collectionName) {
+      dbCache.delete(key);
+    }
+  }
+}
 
 /* ==========================================
    UNIFIED CRUD INTERFACE (SUPABASE & MOCK LOCALSTORAGE)
@@ -809,6 +839,7 @@ const getStorageKey = (collectionName) => `kmf_gym_${collectionName}`;
 // CREATE (Add new item)
 export async function dbCreate(collectionName, data) {
   logDevAction(`DB CREATE - Collection: "${collectionName}" - Data: ${JSON.stringify(data)}`);
+  invalidateCache(collectionName);
 
   const { active, supabase } = getRef();
   
@@ -844,6 +875,13 @@ export async function dbCreate(collectionName, data) {
 // READ (Get all items in collection)
 export async function dbReadAll(collectionName) {
   logDevAction(`DB READ ALL - Collection: "${collectionName}"`);
+  
+  const cacheKey = collectionName;
+  const cachedData = getCache(cacheKey);
+  if (cachedData !== null) {
+    logDevAction(`DB CACHE HIT - Collection: "${collectionName}"`);
+    return JSON.parse(JSON.stringify(cachedData));
+  }
 
   const { active, supabase } = getRef();
 
@@ -852,7 +890,9 @@ export async function dbReadAll(collectionName) {
       const table = TABLE_MAP[collectionName] || collectionName;
       const { data: res, error } = await supabase.from(table).select('*');
       if (error) throw error;
-      return snakeToCamel(res);
+      const result = snakeToCamel(res);
+      setCache(cacheKey, result);
+      return result;
     } catch (e) {
       console.error(`Supabase select * failed for ${collectionName}, falling back to LocalStorage`, e);
     }
@@ -863,12 +903,21 @@ export async function dbReadAll(collectionName) {
   // Local Storage fallback
   const key = getStorageKey(collectionName);
   const data = JSON.parse(localStorage.getItem(key));
-  return Array.isArray(data) ? data : (data ? [data] : []);
+  const result = Array.isArray(data) ? data : (data ? [data] : []);
+  setCache(cacheKey, result);
+  return result;
 }
 
 // READ ONE BY ID
 export async function dbReadOne(collectionName, id) {
   logDevAction(`DB READ ONE - Collection: "${collectionName}" - ID: "${id}"`);
+
+  const cacheKey = `${collectionName}:one:${id}`;
+  const cachedData = getCache(cacheKey);
+  if (cachedData !== null) {
+    logDevAction(`DB CACHE HIT - Collection: "${collectionName}" - ID: "${id}"`);
+    return JSON.parse(JSON.stringify(cachedData));
+  }
 
   const { active, supabase } = getRef();
 
@@ -877,7 +926,9 @@ export async function dbReadOne(collectionName, id) {
       const table = TABLE_MAP[collectionName] || collectionName;
       const { data: res, error } = await supabase.from(table).select('*').eq('id', id).maybeSingle();
       if (error) throw error;
-      return snakeToCamel(res);
+      const result = snakeToCamel(res);
+      setCache(cacheKey, result);
+      return result;
     } catch (e) {
       console.error(`Supabase select single failed for ${collectionName}:${id}, falling back to LocalStorage`, e);
     }
@@ -888,15 +939,20 @@ export async function dbReadOne(collectionName, id) {
   // Local Storage fallback
   const key = getStorageKey(collectionName);
   const store = JSON.parse(localStorage.getItem(key));
+  let result = null;
   if (Array.isArray(store)) {
-    return store.find(item => item.id === id) || null;
+    result = store.find(item => item.id === id) || null;
+  } else {
+    result = store;
   }
-  return store;
+  setCache(cacheKey, result);
+  return result;
 }
 
 // UPDATE (Modify an existing item)
 export async function dbUpdate(collectionName, id, updatedData) {
   logDevAction(`DB UPDATE - Collection: "${collectionName}" - ID: "${id}" - Data: ${JSON.stringify(updatedData)}`);
+  invalidateCache(collectionName);
 
   const { active, supabase } = getRef();
 
@@ -936,6 +992,7 @@ export async function dbUpdate(collectionName, id, updatedData) {
 // DELETE (Remove item)
 export async function dbDelete(collectionName, id) {
   logDevAction(`DB DELETE - Collection: "${collectionName}" - ID: "${id}"`);
+  invalidateCache(collectionName);
 
   const { active, supabase } = getRef();
 
@@ -967,6 +1024,13 @@ export async function dbDelete(collectionName, id) {
 export async function dbQuery(collectionName, field, value) {
   logDevAction(`DB QUERY - Collection: "${collectionName}" - Field: "${field}" - Value: "${value}"`);
 
+  const cacheKey = `${collectionName}:query:${field}:${value}`;
+  const cachedData = getCache(cacheKey);
+  if (cachedData !== null) {
+    logDevAction(`DB CACHE HIT - Collection: "${collectionName}" - Query: "${field}=${value}"`);
+    return JSON.parse(JSON.stringify(cachedData));
+  }
+
   const { active, supabase } = getRef();
 
   if (active && supabase) {
@@ -975,7 +1039,9 @@ export async function dbQuery(collectionName, field, value) {
       const snakeField = field.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
       const { data: res, error } = await supabase.from(table).select('*').eq(snakeField, value);
       if (error) throw error;
-      return snakeToCamel(res);
+      const result = snakeToCamel(res);
+      setCache(cacheKey, result);
+      return result;
     } catch (e) {
       console.error(`Supabase query failed for ${collectionName}, falling back to LocalStorage`, e);
     }
@@ -986,8 +1052,12 @@ export async function dbQuery(collectionName, field, value) {
   // Local Storage fallback
   const key = getStorageKey(collectionName);
   const store = JSON.parse(localStorage.getItem(key)) || [];
+  let result = [];
   if (Array.isArray(store)) {
-    return store.filter(item => item[field] === value);
+    result = store.filter(item => item[field] === value);
+  } else {
+    result = store && store[field] === value ? [store] : [];
   }
-  return store && store[field] === value ? [store] : [];
+  setCache(cacheKey, result);
+  return result;
 }
